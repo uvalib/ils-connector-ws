@@ -1,0 +1,25 @@
+ID,URL,NAME
+1, http://static.lib.virginia.edu/images/maps/Ald_1_Map.png, First Floor Stacks
+2, http://static.lib.virginia.edu/images/maps/Ald_1M_Map.png, 1M Stacks
+3, http://static.lib.virginia.edu/images/maps/Ald_2M_Map.png, 2M Stacks
+4, http://static.lib.virginia.edu/images/maps/Ald_3_Map.png, 3rd Floor Stacks
+5, http://static.lib.virginia.edu/images/maps/Ald_3M_Map.png, 3M Stacks
+6, http://static.lib.virginia.edu/images/maps/Ald_4_Map.png, Fourth Floor Stacks
+7, http://static.lib.virginia.edu/images/maps/Ald_4M_Map.png, 4M Stacks
+8, http://static.lib.virginia.edu/images/maps/Ald_5_Map.png, Fifth Floor Stacks
+9, http://static.lib.virginia.edu/images/maps/Ald_5M_Map.png, 5M Stacks
+10, http://static.lib.virginia.edu/images/maps/RefRoom_Map.png, Reference Room
+11, http://static.lib.virginia.edu/images/maps/Current_Journals_Room_Map.png, Current Journals Room
+12, http://static.lib.virginia.edu/images/maps/Map_Micro_Map.png, Maps & Microfilm Room
+13, http://lib.law.virginia.edu/virgomaps/law_3rd_floor.html, 3rd Floor - A - HV599
+14, http://lib.law.virginia.edu/virgomaps/law_basement.html, Basement Stacks
+15, http://lib.law.virginia.edu/virgomaps/law_2nd_floor_reference.html, 2nd Floor - Reference
+16, http://lib.law.virginia.edu/virgomaps/law_assistance.html, Assistance Needed
+18, http://lib.law.virginia.edu/virgomaps/law_2nd_floor_KF.html, 2nd Floor - KF
+19, http://lib.law.virginia.edu/virgomaps/law_1st_floor_p.html, 1st Floor - P
+20, http://lib.law.virginia.edu/virgomaps/law_2nd_floor_microfilm.html, 2nd Floor - Gov Docs
+22, http://lib.law.virginia.edu/virgomaps/law_1st_floor_klaus-reserve.html, 1st Floor - Reserves
+23, http://lib.law.virginia.edu/virgomaps/law_1st_floor_kfv.html, 1st Floor - KFV
+26, http://lib.law.virginia.edu/virgomaps/law_2nd_floor_HV.html, 2nd Floor - HV600-K380
+27, http://lib.law.virginia.edu/virgomaps/law_2nd_floor_KF.html, 2nd Floor - K415-Z
+28, http://lib.law.virginia.edu/virgomaps/law_2nd_floor_KF.html, 2nd Floor - K400-KZ (except KF)

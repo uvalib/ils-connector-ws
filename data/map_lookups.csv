@@ -1,0 +1,73 @@
+RANGE,LOCATION,MAP
+A-AFQ   ,STACKS  ,13
+AFR     ,STACKS  ,29
+AFS-ASH ,STACKS  ,13
+ASIA    ,STACKS  ,29
+ASJ-EUQ ,STACKS  ,13
+A       ,STACKS  ,1
+B-Bacheloq,STACKS  ,8
+Bachelor,STACKS  ,1
+Bachelos-,STACKS  ,8
+C       ,STACKS  ,5
+DISS.   ,STACKS  ,1
+D-DT    ,STACKS  ,7
+DU-DX   ,STACKS  ,2
+E       ,STACKS  ,2
+EUR     ,STACKS  ,29
+EUS-EZ  ,STACKS  ,13
+F       ,STACKS  ,2
+F .     ,STACKS  ,29
+F1-HV599,STACKS  ,13
+G       ,STACKS  ,2
+H       ,STACKS  ,5
+HV600-INS,STACKS  ,28
+INT     ,STACKS  ,29
+INU-K380,STACKS  ,28
+J       ,STACKS  ,8
+K       ,STACKS  ,1
+K400-KE,STACKS  ,31
+KF-KFU  ,STACKS  ,18
+KFV     ,STACKS  ,25
+KFW-KFZ ,STACKS  ,18
+KG-KZ   ,STACKS  ,31
+L       ,STACKS  ,3
+L-O     ,STACKS  ,29
+Masters ,STACKS  ,1
+miccard ,3EAST,12
+micfich ,3EAST,12
+micfilm N-,3East,12
+N       ,STACKS  ,3
+P .     ,STACKS  ,19
+P-PG    ,STACKS  ,3
+PH-PN   ,STACKS  ,1
+PQ-PS   ,STACKS  ,6
+PT      ,STACKS  ,3
+PZ      ,STACKS  ,3
+P1-R12,STACKS  ,29
+R13,*       ,16
+R14-Z,STACKS  ,29
+Q       ,STACKS  ,1
+R       ,STACKS  ,1
+S       ,STACKS  ,9
+T       ,STACKS  ,9
+U       ,STACKS  ,9
+V       ,STACKS  ,9
+XX      ,*       ,16
+Z       ,STACKS  ,9
+*       ,CUR-PER ,11
+*       ,DOC-INTL,4
+*       ,DOC-OVERSZ,4
+*       ,DOC-US  ,4
+*       ,DOC-VA  ,4
+*       ,DOCDEL  ,4
+*       ,LAW-BASEMT,14
+*       ,LAW-IVY ,16
+*       ,LAW1-RSRV,24
+*       ,LAW1-TAX,26
+*       ,LAW2-DOCS,21
+*       ,LAW2-KLAUS,17
+*       ,LAW2-MEDIA,22
+*       ,READYREF,15
+*       ,REF-DESK,15
+*       ,REFERENCE,10
+*       ,SPECCOLL,27

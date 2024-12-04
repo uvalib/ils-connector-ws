@@ -1,0 +1,17 @@
+.DS_Store
+log/*.*
+*.log
+tmp/*
+*~
+*.bak
+bin
+# Ignore application configuration
+/config.yml
+dist/
+.idea
+env.*
+/pkg
+run.sh
+curls.txt
+package/scripts/*.ksh
+.vscode/
