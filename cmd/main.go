@@ -22,7 +22,6 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
-	log.Printf("Setup routes...")
 	gin.SetMode(gin.ReleaseMode)
 	gin.DisableConsoleColor()
 	router := gin.Default()
