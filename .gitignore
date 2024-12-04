@@ -13,5 +13,6 @@ env.*
 /pkg
 run.sh
 curls.txt
-package/scripts/*.ksh
+package/scripts/build.ksh
+package/scripts/shell.ksh
 .vscode/
