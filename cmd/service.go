@@ -21,11 +21,18 @@ type sirsiSessionData struct {
 	RefreshAt    time.Time
 }
 
+func (sess *sirsiSessionData) isExpired() bool {
+	return time.Now().After(sess.RefreshAt)
+}
+
 type serviceContext struct {
 	Version      string
 	SirsiConfig  sirsiConfig
 	SirsiSession sirsiSessionData
 	Secrets      secretsConfig
+	VirgoURL     string
+	PDAURL       string
+	UserInfoURL  string
 	HTTPClient   *http.Client
 }
 
@@ -34,10 +41,17 @@ type requestError struct {
 	Message    string
 }
 
+func (re *requestError) string() string {
+	return fmt.Sprintf("%d: %s", re.StatusCode, re.Message)
+}
+
 func intializeService(version string, cfg *serviceConfig) (*serviceContext, error) {
 	ctx := serviceContext{Version: version,
 		SirsiConfig: cfg.Sirsi,
 		Secrets:     cfg.Secrets,
+		PDAURL:      cfg.PDAURL,
+		VirgoURL:    cfg.VirgoURL,
+		UserInfoURL: cfg.UserInfoURL,
 	}
 
 	log.Printf("INFO: create http client for external service calls")
@@ -66,6 +80,8 @@ func intializeService(version string, cfg *serviceConfig) (*serviceContext, erro
 func (svc *serviceContext) sirsiLogin() error {
 	log.Printf("INFO: attempting sirsi login...")
 	startTime := time.Now()
+	svc.SirsiSession.SessionToken = ""
+	svc.SirsiSession.StaffKey = ""
 	url := fmt.Sprintf("%s/user/staff/login", svc.SirsiConfig.WebServicesURL)
 	payloadOBJ := struct {
 		Login    string `json:"login"`
@@ -76,14 +92,7 @@ func (svc *serviceContext) sirsiLogin() error {
 	}
 	payloadBytes, _ := json.Marshal(payloadOBJ)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	req.Header.Set("x-sirs-clientID", svc.SirsiConfig.ClientID)
-	req.Header.Set("x-sirs-locale", "en_US")
-	req.Header.Set("SD-Originating-App-Id", "Virgo")
-	req.Header.Set("SD-Preferred-Role", "STAFF")
-	req.Header.Set("SD-Working-LibraryID", svc.SirsiConfig.Library)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
+	svc.setSirsiHeaders(req, false)
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
@@ -113,6 +122,7 @@ func (svc *serviceContext) sirsiLogin() error {
 
 // ignoreFavicon is a dummy to handle browser favicon requests without warnings
 func (svc *serviceContext) ignoreFavicon(c *gin.Context) {
+	// NO-OP
 }
 
 // GetVersion reports the version of the serivce
@@ -139,7 +149,84 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 	}
 	hcMap := make(map[string]hcResp)
 
+	// sirsi healthcheck
+	sirsiSignedIn := true
+	if svc.SirsiSession.SessionToken == "" || svc.SirsiSession.isExpired() {
+		err := svc.sirsiLogin()
+		if err != nil {
+			log.Printf("ERROR: %s", err.Error())
+			hcMap["sirsi"] = hcResp{Healthy: false, Message: err.Error()}
+			sirsiSignedIn = false
+		}
+	}
+	if sirsiSignedIn {
+		url := fmt.Sprintf("%s/user/staff/key/%s", svc.SirsiConfig.WebServicesURL, svc.SirsiSession.StaffKey)
+		_, err := svc.sirsiGet(url)
+		if err != nil {
+			hcMap["sirsi"] = hcResp{Healthy: false, Message: err.string()}
+		} else {
+			hcMap["sirsi"] = hcResp{Healthy: true}
+		}
+	}
+
+	// user service healthcheck
+	userURL := fmt.Sprintf("%s/healthcheck", svc.UserInfoURL)
+	_, userErr := svc.serviceGet(userURL)
+	if userErr != nil {
+		hcMap["userinfo"] = hcResp{Healthy: false, Message: userErr.string()}
+	} else {
+		hcMap["userinfo"] = hcResp{Healthy: true}
+	}
+
+	// pda healthcheck
+	pdaURL := fmt.Sprintf("%s/healthcheck", svc.PDAURL)
+	_, pdaErr := svc.serviceGet(pdaURL)
+	if pdaErr != nil {
+		hcMap["pda"] = hcResp{Healthy: false, Message: pdaErr.string()}
+	} else {
+		hcMap["pda"] = hcResp{Healthy: true}
+	}
+
 	c.JSON(http.StatusOK, hcMap)
+}
+
+func (svc *serviceContext) serviceGet(url string) ([]byte, *requestError) {
+	log.Printf("INFO: service get request: %s", url)
+	startTime := time.Now()
+	req, _ := http.NewRequest("GET", url, nil)
+	rawResp, rawErr := svc.HTTPClient.Do(req)
+	resp, err := handleAPIResponse(url, rawResp, rawErr)
+	elapsedNanoSec := time.Since(startTime)
+	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
+	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	return resp, err
+}
+
+func (svc *serviceContext) sirsiGet(url string) ([]byte, *requestError) {
+	log.Printf("INFO: sirsi get request: %s", url)
+	startTime := time.Now()
+	req, _ := http.NewRequest("GET", url, nil)
+	svc.setSirsiHeaders(req, true)
+	rawResp, rawErr := svc.HTTPClient.Do(req)
+	resp, err := handleAPIResponse(url, rawResp, rawErr)
+	elapsedNanoSec := time.Since(startTime)
+	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
+	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	return resp, err
+}
+
+func (svc *serviceContext) setSirsiHeaders(req *http.Request, includeAuth bool) {
+	req.Header.Set("x-sirs-clientID", svc.SirsiConfig.ClientID)
+	req.Header.Set("x-sirs-locale", "en_US")
+	req.Header.Set("SD-Originating-App-Id", "Virgo")
+	req.Header.Set("SD-Preferred-Role", "STAFF")
+	req.Header.Set("SD-Working-LibraryID", svc.SirsiConfig.Library)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
+	if includeAuth {
+		req.Header.Set("x-sirs-sessionToken", svc.SirsiSession.SessionToken)
+	}
 }
 
 func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *requestError) {
