@@ -37,6 +37,8 @@ func main() {
 	router.GET("/version", svc.getVersion)
 	router.GET("/healthcheck", svc.healthCheck)
 
+	router.GET("/users/:compute_id", svc.getUserInfo)
+
 	portStr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Start service v%s on port %s", version, portStr)
 	log.Fatal(router.Run(portStr))

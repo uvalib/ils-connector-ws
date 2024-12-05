@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt"
 )
 
 type sirsiSessionData struct {
@@ -141,7 +142,6 @@ func (svc *serviceContext) getVersion(c *gin.Context) {
 }
 
 func (svc *serviceContext) healthCheck(c *gin.Context) {
-	log.Printf("Got healthcheck request")
 	type hcResp struct {
 		Healthy bool   `json:"healthy"`
 		Message string `json:"message,omitempty"`
@@ -171,7 +171,7 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 
 	// user service healthcheck
 	userURL := fmt.Sprintf("%s/healthcheck", svc.UserInfoURL)
-	_, userErr := svc.serviceGet(userURL)
+	_, userErr := svc.serviceGet(userURL, "")
 	if userErr != nil {
 		hcMap["userinfo"] = hcResp{Healthy: false, Message: userErr.string()}
 	} else {
@@ -180,7 +180,7 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 
 	// pda healthcheck
 	pdaURL := fmt.Sprintf("%s/healthcheck", svc.PDAURL)
-	_, pdaErr := svc.serviceGet(pdaURL)
+	_, pdaErr := svc.serviceGet(pdaURL, "")
 	if pdaErr != nil {
 		hcMap["pda"] = hcResp{Healthy: false, Message: pdaErr.string()}
 	} else {
@@ -190,9 +190,17 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, hcMap)
 }
 
-func (svc *serviceContext) serviceGet(url string) ([]byte, *requestError) {
+func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *requestError) {
 	log.Printf("INFO: service get request: %s", url)
 	startTime := time.Now()
+	if secret != "" {
+		jwt, err := mintBasicJWT(secret)
+		if err != nil {
+			log.Printf("ERROR: unable to mint temporary access jwt: %s", err.Error())
+			return nil, &requestError{StatusCode: http.StatusInternalServerError, Message: err.Error()}
+		}
+		url += fmt.Sprintf("?auth=%s", jwt)
+	}
 	req, _ := http.NewRequest("GET", url, nil)
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
@@ -227,6 +235,16 @@ func (svc *serviceContext) setSirsiHeaders(req *http.Request, includeAuth bool) 
 	if includeAuth {
 		req.Header.Set("x-sirs-sessionToken", svc.SirsiSession.SessionToken)
 	}
+}
+
+func mintBasicJWT(secret string) (string, error) {
+	expirationTime := time.Now().Add(5 * time.Minute)
+	claims := jwt.StandardClaims{
+		ExpiresAt: expirationTime.Unix(),
+		Issuer:    "ilsconector",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
 }
 
 func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *requestError) {
