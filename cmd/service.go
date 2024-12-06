@@ -210,7 +210,8 @@ func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *reque
 	return resp, err
 }
 
-func (svc *serviceContext) sirsiGet(url string) ([]byte, *requestError) {
+func (svc *serviceContext) sirsiGet(uri string) ([]byte, *requestError) {
+	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
 	log.Printf("INFO: sirsi get request: %s", url)
 	startTime := time.Now()
 	req, _ := http.NewRequest("GET", url, nil)
