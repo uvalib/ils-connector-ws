@@ -38,6 +38,9 @@ func main() {
 	router.GET("/healthcheck", svc.healthCheck)
 
 	router.GET("/users/:compute_id", svc.sirsiAuthMiddleware, svc.getUserInfo)
+	router.GET("/users/:compute_id/bills", svc.sirsiAuthMiddleware, svc.getUserBills)
+	router.GET("/users/:compute_id/checkouts", svc.sirsiAuthMiddleware, svc.getUserCheckouts)
+	router.GET("/users/:compute_id/holds", svc.sirsiAuthMiddleware, svc.getUserHolds)
 
 	portStr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Start service v%s on port %s", version, portStr)

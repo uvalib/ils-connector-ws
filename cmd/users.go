@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Raw user-ws response structures  =============================================
+
 type userInfoRespData struct {
 	Status  uint64 `json:"status"`
 	Message string `json:"message"`
@@ -23,18 +25,22 @@ type userInfoRespData struct {
 	} `json:"user"`
 }
 
+// Raw sirsi response structures  =============================================
+
 type sirsiUserSearchResp struct {
 	TotalResults uint64          `json:"totalResults"`
 	Result       []sirsiUserData `json:"result"`
 }
 
+type sirsiKey struct {
+	Key string `json:"key"`
+}
+
 type sirsiAddressData struct {
 	Key    string `json:"key"`
 	Fields struct {
-		Code struct {
-			Key string `json:"key"`
-		} `json:"code"`
-		Data string `json:"data"`
+		Code sirsiKey `json:"code"`
+		Data string   `json:"data"`
 	}
 }
 
@@ -52,15 +58,11 @@ type sirsiUserData struct {
 				EmailAddress string `json:"emailAddress"`
 			} `json:"fields"`
 		} `json:"primaryAddress"`
-		Profile struct {
-			Key string `json:"key"`
-		} `json:"profile"`
+		Profile          sirsiKey `json:"profile"`
 		PatronStatusInfo struct {
 			Key    string `json:"key"`
 			Fields struct {
-				Standing struct {
-					Key string `json:"key"`
-				} `json:"standing"`
+				Standing   sirsiKey `json:"standing"`
 				AmountOwed struct {
 					Amount string `json:"amount"`
 				} `json:"amountOwed"`
@@ -74,6 +76,71 @@ type sirsiUserData struct {
 		Address3 []sirsiAddressData `json:"address3"`
 	} `json:"fields"`
 }
+
+type sirsiHoldsResp struct {
+	TotalResults uint64       `json:"totalResults"`
+	Result       []sirsiHolds `json:"result"`
+}
+
+type sirsiHolds struct {
+	Key    string `json:"key"`
+	Fields struct {
+		HoldRecordList []struct {
+			Key    string `json:"key"`
+			Fields struct {
+				Bib struct {
+					Key    string `json:"key"`
+					Fields struct {
+						Author string `json:"author"`
+						Title  string `json:"title"`
+					} `json:"fields"`
+				} `json:"bib"`
+				Item struct {
+					Key    string `json:"key"`
+					Fields struct {
+						Call struct {
+							Key    string `json:"key"`
+							Fields struct {
+								DispCallNumber string `json:"dispCallNumber"`
+							} `json:"fields"`
+						} `json:"call"`
+						Barcode         string   `json:"barcode"`
+						CurrentLocation sirsiKey `json:"currentLocation"`
+						Library         sirsiKey `json:"library"`
+						Transit         struct {
+							Fields struct {
+								TransitReason string `json:"transitReason"`
+							} `json:"fields"`
+						} `json:"transit"`
+					} `json:"fields"`
+				} `json:"item"`
+				Patron           sirsiKey `json:"patron"`
+				BeingHeldDate    string   `json:"beingHeldDate"`
+				Comment          string   `json:"comment"`
+				ExpirationDate   string   `json:"expirationDate"`
+				FillByDate       string   `json:"fillByDate"`
+				HoldPriority     string   `json:"holdPriority"`
+				HoldRange        sirsiKey `json:"holdRange"`
+				HoldType         string   `json:"holdType"`
+				InactiveReason   string   `json:"inactiveReason"`
+				InactiveDate     string   `json:"inactiveDate"`
+				PickupLibrary    sirsiKey `json:"pickupLibrary"`
+				PlacedDate       string   `json:"placedDate"`
+				PlacedLibrary    sirsiKey `json:"placedLibrary"`
+				QueueLength      uint64   `json:"queueLength"`
+				QueuePosition    uint64   `json:"queuePosition"`
+				NoticeDate       string   `json:"noticeDate"`
+				RecallStatus     string   `json:"recallStatus"`
+				SelectedItem     sirsiKey `json:"selectedItem"`
+				Status           string   `json:"status"`
+				SuspendBeginDate string   `json:"suspendBeginDate"`
+				SuspendEndDate   string   `json:"suspendEndDate"`
+			} `json:"fields"`
+		} `json:"holdRecordList"`
+	} `json:"fields"`
+}
+
+// ILSConnector response structures ===========================================
 
 type userAddress struct {
 	Line1 string `json:"line1"`
@@ -111,13 +178,29 @@ type userDetails struct {
 	AmountOwed  string `json:"amountOwed"`
 }
 
+type holdResponse struct {
+	Holds []holdDetails `json:"holds"`
+}
+
+type holdDetails struct {
+	ID             string `json:"id"`
+	UserID         string `json:"userID"`
+	PickupLocation string `json:"pickupLocation"`
+	Status         string `json:"status"`
+	PlacedDate     string `json:"placedDate"`
+	QueueLength    uint64 `json:"queueLength"`
+	QuePosition    uint64 `json:"queuePosition"`
+	TitleKey       string `json:"titleKey"`
+	Title          string `json:"title"`
+	Author         string `json:"author"`
+	CallNumber     string `json:"callNumber"`
+	Barcode        string `json:"barcode"`
+	ItemStatus     string `json:"itemStatus"`
+	Cancellable    bool   `json:"cancellable"`
+}
+
 func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	computeID := c.Param("compute_id")
-	if computeID == "" {
-		c.String(http.StatusBadRequest, "compute_id is required")
-		return
-	}
-
 	log.Printf("INFO: lookup user %s in user-ws", computeID)
 	var user userDetails
 	url := fmt.Sprintf("%s/user/%s", svc.UserInfoURL, computeID)
@@ -161,7 +244,7 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	fields := "barcode,primaryAddress{*},address1,address2,address3,displayName,preferredName,firstName,middleName,lastName,"
 	fields += "profile,patronStatusInfo{standing,amountOwed},library"
 	sirsiURL := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&includeFields=%s", computeID, fields)
-	sirsiRaw, sirsiErr := svc.sirsiGet(sirsiURL)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, sirsiURL)
 	if sirsiErr != nil {
 		log.Printf("ERROR: get sirsi user %s failed: %s", computeID, sirsiErr.string())
 		c.String(sirsiErr.StatusCode, sirsiErr.Message)
@@ -229,6 +312,79 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user)
+}
+
+func (svc *serviceContext) getUserBills(c *gin.Context) {
+	computeID := c.Param("compute_id")
+	log.Printf("INFO: get bills for %s", computeID)
+	// /user/patron/search?q=ID:834217110&includeFields=blockList{title,callNumber,amount,createDate,block{description},item{barcode,bib{author}}}
+}
+
+func (svc *serviceContext) getUserCheckouts(c *gin.Context) {
+	computeID := c.Param("compute_id")
+	log.Printf("INFO: get checkouts for %s", computeID)
+}
+
+func (svc *serviceContext) getUserHolds(c *gin.Context) {
+	computeID := c.Param("compute_id")
+	log.Printf("INFO: get holds for %s", computeID)
+	fields := "holdRecordList{*,bib{title,author},item{barcode,currentLocation,library,transit{transitReason},call{dispCallNumber}}}"
+	url := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&i&includeFields=%s", computeID, fields)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
+	if sirsiErr != nil {
+		log.Printf("ERROR: get sirsi user %s holds failed: %s", computeID, sirsiErr.string())
+		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		return
+	}
+
+	var holdResp sirsiHoldsResp
+	parseErr := json.Unmarshal(sirsiRaw, &holdResp)
+	if parseErr != nil {
+		log.Printf("ERROR: unabel to parse holds response: %s", parseErr.Error())
+		c.String(http.StatusInternalServerError, parseErr.Error())
+		return
+	}
+
+	if holdResp.TotalResults == 0 || holdResp.TotalResults > 1 {
+		log.Printf("INFO: holds for %s not found", computeID)
+		c.String(http.StatusBadRequest, fmt.Sprintf("holds for %s not found", computeID))
+		return
+	}
+
+	var holds []holdDetails
+	holdRecs := holdResp.Result[0].Fields.HoldRecordList
+	for _, hr := range holdRecs {
+		hold := holdDetails{ID: hr.Key, UserID: computeID}
+		hold.Status = hr.Fields.Status
+		if hold.Status == "BEING_HELD" {
+			hold.Status = fmt.Sprintf("AWAITING PICKUP since %s", hr.Fields.BeingHeldDate)
+		}
+		hold.PickupLocation = hr.Fields.PickupLibrary.Key
+		if hold.PickupLocation == "LEO" {
+			hold.PickupLocation = "LEO delivery"
+		}
+		hold.ItemStatus = hr.Fields.Item.Fields.CurrentLocation.Key
+		if hold.ItemStatus == "CHECKEDOUT" && hr.Fields.RecallStatus == "RUSH" {
+			hold.ItemStatus = "CHECKED OUT, recalled from borrower."
+		} else if hold.ItemStatus == "INTRANSIT " {
+			if hr.Fields.Item.Fields.Transit.Fields.TransitReason == "HOLD" {
+				hold.ItemStatus = "IN TRANSIT for hold"
+			}
+		}
+		hold.Cancellable = hr.Fields.Status == "PLACED" && hr.Fields.RecallStatus != "RUSH"
+		hold.PlacedDate = hr.Fields.PlacedDate
+		hold.QueueLength = hr.Fields.QueueLength
+		hold.QuePosition = hr.Fields.QueuePosition
+		hold.TitleKey = hr.Fields.Bib.Key
+		hold.Title = hr.Fields.Bib.Fields.Title
+		hold.Author = hr.Fields.Bib.Fields.Author
+		hold.CallNumber = hr.Fields.Item.Fields.Call.Fields.DispCallNumber
+		hold.Barcode = hr.Fields.Item.Fields.Barcode
+
+		holds = append(holds, hold)
+	}
+
+	c.JSON(http.StatusOK, holdResponse{Holds: holds})
 }
 
 func extractAddress(destAddr *userAddress, srcAddressData []sirsiAddressData) {

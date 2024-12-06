@@ -27,14 +27,15 @@ func (sess *sirsiSessionData) isExpired() bool {
 }
 
 type serviceContext struct {
-	Version      string
-	SirsiConfig  sirsiConfig
-	SirsiSession sirsiSessionData
-	Secrets      secretsConfig
-	VirgoURL     string
-	PDAURL       string
-	UserInfoURL  string
-	HTTPClient   *http.Client
+	Version        string
+	SirsiConfig    sirsiConfig
+	SirsiSession   sirsiSessionData
+	Secrets        secretsConfig
+	VirgoURL       string
+	PDAURL         string
+	UserInfoURL    string
+	HTTPClient     *http.Client
+	SlowHTTPClient *http.Client
 }
 
 type requestError struct {
@@ -68,6 +69,10 @@ func intializeService(version string, cfg *serviceConfig) (*serviceContext, erro
 	ctx.HTTPClient = &http.Client{
 		Transport: defaultTransport,
 		Timeout:   10 * time.Second,
+	}
+	ctx.SlowHTTPClient = &http.Client{
+		Transport: defaultTransport,
+		Timeout:   30 * time.Second,
 	}
 
 	err := ctx.sirsiLogin()
@@ -161,7 +166,7 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 	}
 	if sirsiSignedIn {
 		url := fmt.Sprintf("%s/user/staff/key/%s", svc.SirsiConfig.WebServicesURL, svc.SirsiSession.StaffKey)
-		_, err := svc.sirsiGet(url)
+		_, err := svc.sirsiGet(svc.HTTPClient, url)
 		if err != nil {
 			hcMap["sirsi"] = hcResp{Healthy: false, Message: err.string()}
 		} else {
@@ -210,13 +215,13 @@ func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *reque
 	return resp, err
 }
 
-func (svc *serviceContext) sirsiGet(uri string) ([]byte, *requestError) {
+func (svc *serviceContext) sirsiGet(client *http.Client, uri string) ([]byte, *requestError) {
 	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
 	log.Printf("INFO: sirsi get request: %s", url)
 	startTime := time.Now()
 	req, _ := http.NewRequest("GET", url, nil)
 	svc.setSirsiHeaders(req, true)
-	rawResp, rawErr := svc.HTTPClient.Do(req)
+	rawResp, rawErr := client.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
