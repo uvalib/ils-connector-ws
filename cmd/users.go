@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,52 @@ type sirsiAddressData struct {
 		Code sirsiKey `json:"code"`
 		Data string   `json:"data"`
 	}
+}
+
+type sirsiBillItem struct {
+	Fields struct {
+		BlockList []struct {
+			Fields struct {
+				CreateDate string `json:"createDate"`
+				Amount     struct {
+					Amount string `json:"amount"`
+				} `json:"amount"`
+				Block struct {
+					Fields struct {
+						Description string `json:"description"`
+					} `json:"fields"`
+				} `json:"block"`
+				Item struct {
+					Fields struct {
+						Bib struct {
+							Key    string `json:"key"`
+							Fields struct {
+								Author string `json:"author"`
+							} `json:"fields"`
+						} `json:"bib"`
+						Barcode  string `json:"barcode"`
+						ItemType struct {
+							Fields struct {
+								Description string `json:"description"`
+							} `json:"fields"`
+						} `json:"itemType"`
+					} `json:"fields"`
+				} `json:"item"`
+				Library struct {
+					Fields struct {
+						Description string `json:"description"`
+					} `json:"fields"`
+				} `json:"library"`
+				CallNumber string `json:"callNumber"`
+				Title      string `json:"title"`
+			} `json:"fields"`
+		} `json:"blockList"`
+	} `json:"fields"`
+}
+
+type sirsiBillResponse struct {
+	TotalResults uint64          `json:"totalResults"`
+	Result       []sirsiBillItem `json:"result"`
 }
 
 type sirsiUserData struct {
@@ -114,27 +161,13 @@ type sirsiHolds struct {
 						} `json:"transit"`
 					} `json:"fields"`
 				} `json:"item"`
-				Patron           sirsiKey `json:"patron"`
-				BeingHeldDate    string   `json:"beingHeldDate"`
-				Comment          string   `json:"comment"`
-				ExpirationDate   string   `json:"expirationDate"`
-				FillByDate       string   `json:"fillByDate"`
-				HoldPriority     string   `json:"holdPriority"`
-				HoldRange        sirsiKey `json:"holdRange"`
-				HoldType         string   `json:"holdType"`
-				InactiveReason   string   `json:"inactiveReason"`
-				InactiveDate     string   `json:"inactiveDate"`
-				PickupLibrary    sirsiKey `json:"pickupLibrary"`
-				PlacedDate       string   `json:"placedDate"`
-				PlacedLibrary    sirsiKey `json:"placedLibrary"`
-				QueueLength      uint64   `json:"queueLength"`
-				QueuePosition    uint64   `json:"queuePosition"`
-				NoticeDate       string   `json:"noticeDate"`
-				RecallStatus     string   `json:"recallStatus"`
-				SelectedItem     sirsiKey `json:"selectedItem"`
-				Status           string   `json:"status"`
-				SuspendBeginDate string   `json:"suspendBeginDate"`
-				SuspendEndDate   string   `json:"suspendEndDate"`
+				BeingHeldDate string   `json:"beingHeldDate"`
+				PickupLibrary sirsiKey `json:"pickupLibrary"`
+				PlacedDate    string   `json:"placedDate"`
+				QueueLength   uint64   `json:"queueLength"`
+				QueuePosition uint64   `json:"queuePosition"`
+				RecallStatus  string   `json:"recallStatus"`
+				Status        string   `json:"status"`
 			} `json:"fields"`
 		} `json:"holdRecordList"`
 	} `json:"fields"`
@@ -197,6 +230,21 @@ type holdDetails struct {
 	Barcode        string `json:"barcode"`
 	ItemStatus     string `json:"itemStatus"`
 	Cancellable    bool   `json:"cancellable"`
+}
+
+type billItem struct {
+	Reason  string `json:"reason"`
+	Amount  uint64 `json:"amount"`
+	Library string `json:"library"`
+	Date    string `json:"date"`
+	Item    struct {
+		ID         uint64 `json:"id"`
+		Barcode    string `json:"barcode"`
+		CallNumber string `json:"callNumber"`
+		Type       string `json:"type"`
+		Title      string `json:"title"`
+		Author     string `json:"author"`
+	} `json:"item"`
 }
 
 func (svc *serviceContext) getUserInfo(c *gin.Context) {
@@ -317,7 +365,48 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 func (svc *serviceContext) getUserBills(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: get bills for %s", computeID)
-	// /user/patron/search?q=ID:834217110&includeFields=blockList{title,callNumber,amount,createDate,block{description},item{barcode,bib{author}}}
+	fields := "blockList{title,callNumber,amount,createDate,library{description},block{description},item{itemType{description},barcode,bib{author}}}"
+	url := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&includeFields=%s", computeID, fields)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
+	if sirsiErr != nil {
+		log.Printf("ERROR: get sirsi user %s bills failed: %s", computeID, sirsiErr.string())
+		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		return
+	}
+
+	var billResp sirsiBillResponse
+	parseErr := json.Unmarshal(sirsiRaw, &billResp)
+	if parseErr != nil {
+		log.Printf("ERROR: unabel to parse billd response: %s", parseErr.Error())
+		c.String(http.StatusInternalServerError, parseErr.Error())
+		return
+	}
+
+	if billResp.TotalResults == 0 || billResp.TotalResults > 1 {
+		log.Printf("INFO: bills for %s not found", computeID)
+		c.String(http.StatusBadRequest, fmt.Sprintf("bills for %s not found", computeID))
+		return
+	}
+
+	var bills []billItem
+	for _, bl := range billResp.Result[0].Fields.BlockList {
+		bill := billItem{}
+		bill.Date = bl.Fields.CreateDate
+		amtF, _ := strconv.ParseFloat(bl.Fields.Amount.Amount, 64)
+		bill.Amount = uint64(amtF)
+		bill.Library = bl.Fields.Library.Fields.Description
+		bill.Reason = bl.Fields.Block.Fields.Description
+		bill.Item.ID, _ = strconv.ParseUint(bl.Fields.Item.Fields.Bib.Key, 10, 64)
+		bill.Item.Type = bl.Fields.Item.Fields.ItemType.Fields.Description
+		bill.Item.Barcode = bl.Fields.Item.Fields.Barcode
+		bill.Item.CallNumber = bl.Fields.CallNumber
+		bill.Item.Title = bl.Fields.Title
+		bill.Item.Author = bl.Fields.Item.Fields.Bib.Fields.Author
+
+		bills = append(bills, bill)
+	}
+
+	c.JSON(http.StatusOK, bills)
 }
 
 func (svc *serviceContext) getUserCheckouts(c *gin.Context) {
