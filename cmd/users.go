@@ -37,6 +37,10 @@ type sirsiKey struct {
 	Key string `json:"key"`
 }
 
+type sirsiDescription struct {
+	Description string `json:"description"`
+}
+
 type sirsiAddressData struct {
 	Key    string `json:"key"`
 	Fields struct {
@@ -54,9 +58,7 @@ type sirsiBillItem struct {
 					Amount string `json:"amount"`
 				} `json:"amount"`
 				Block struct {
-					Fields struct {
-						Description string `json:"description"`
-					} `json:"fields"`
+					Fields sirsiDescription `json:"fields"`
 				} `json:"block"`
 				Item struct {
 					Fields struct {
@@ -68,16 +70,12 @@ type sirsiBillItem struct {
 						} `json:"bib"`
 						Barcode  string `json:"barcode"`
 						ItemType struct {
-							Fields struct {
-								Description string `json:"description"`
-							} `json:"fields"`
+							Fields sirsiDescription `json:"fields"`
 						} `json:"itemType"`
 					} `json:"fields"`
 				} `json:"item"`
 				Library struct {
-					Fields struct {
-						Description string `json:"description"`
-					} `json:"fields"`
+					Fields sirsiDescription `json:"fields"`
 				} `json:"library"`
 				CallNumber string `json:"callNumber"`
 				Title      string `json:"title"`
