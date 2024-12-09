@@ -4,12 +4,10 @@
 
 # run from here
 cd bin; ./ils-connector-ws \
-  -authsecret ${AUTH_SHARED_SECRET} \
+  -userkey ${AUTH_SHARED_SECRET} \
   -jwtkey ${JWT_KEY} \
-  -jwtsecret "UNKNOWN" \
   -pda ${PDA_BASE_URL} \
   -port ${SERVICE_PORT} \
-  -secretbase "UNKNOWN" \
   -sirsiclient ${SIRSI_CLIENT_ID} \
   -sirsilibrary ${SIRSI_LIBRARY} \
   -sirsipass ${SIRSI_PASSWORD} \

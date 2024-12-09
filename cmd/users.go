@@ -122,6 +122,62 @@ type sirsiUserData struct {
 	} `json:"fields"`
 }
 
+type sirsiCheckoutsResp struct {
+	TotalResults uint64          `json:"totalResults"`
+	Result       []sirsiCheckout `json:"result"`
+}
+
+type sirsiCheckoutBlocRec struct {
+	Amount struct {
+		Amount string `json:"amount"`
+	} `json:"amount"`
+	Block struct {
+		Fields sirsiDescription `json:"fields"`
+	} `json:"block"`
+	Item sirsiKey `json:"item"`
+}
+
+type sirsiCheckout struct {
+	Fields struct {
+		CircRecordList []struct {
+			Fields struct {
+				Item struct {
+					Key    string `json:"key"`
+					Fields struct {
+						Call struct {
+							Fields struct {
+								Bib struct {
+									Key    string `json:"key"`
+									Fields struct {
+										Author string `json:"author"`
+										Title  string `json:"title"`
+									} `json:"fields"`
+								} `json:"bib"`
+								DispCallNumber string `json:"dispCallNumber"`
+							} `json:"fields"`
+						} `json:"call"`
+						Barcode         string   `json:"barcode"`
+						CurrentLocation sirsiKey `json:"currentLocation"`
+					} `json:"fields"`
+				} `json:"item"`
+				DueDate string `json:"dueDate"`
+				Library struct {
+					Fields sirsiDescription `json:"fields"`
+				} `json:"library"`
+				Overdue                bool `json:"overdue"`
+				EstimatedOverdueAmount struct {
+					Amount string `json:"amount"`
+				} `json:"estimatedOverdueAmount"`
+				RecallDueDate string `json:"recallDueDate"`
+				RenewalDate   string `json:"renewalDate"`
+			} `json:"fields"`
+		} `json:"circRecordList"`
+		BlockList []struct {
+			Fields sirsiCheckoutBlocRec `json:"fields"`
+		} `json:"blockList"`
+	} `json:"fields"`
+}
+
 type sirsiHoldsResp struct {
 	TotalResults uint64       `json:"totalResults"`
 	Result       []sirsiHolds `json:"result"`
@@ -230,6 +286,27 @@ type holdDetails struct {
 	Cancellable    bool   `json:"cancellable"`
 }
 
+type checkoutBill struct {
+	Amount string `json:"amount"`
+	Label  string `json:"label"`
+}
+
+type checkoutDetails struct {
+	ID              string         `json:"id"`
+	Title           string         `json:"title"`
+	Author          string         `json:"author"`
+	Barcode         string         `json:"barcode"`
+	CallNumber      string         `json:"callNumber"`
+	Library         string         `json:"library"`
+	CurrentLocation string         `json:"currentLocation"`
+	Due             string         `json:"due"`
+	OverDue         bool           `json:"overDue"`
+	OverdueFee      string         `json:"overdueFee"`
+	Bills           []checkoutBill `json:"bills"`
+	RecallDueDate   string         `json:"recallDueDate"`
+	RenewDate       string         `json:"renewDate"`
+}
+
 type billItem struct {
 	Reason  string `json:"reason"`
 	Amount  uint64 `json:"amount"`
@@ -250,7 +327,7 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	log.Printf("INFO: lookup user %s in user-ws", computeID)
 	var user userDetails
 	url := fmt.Sprintf("%s/user/%s", svc.UserInfoURL, computeID)
-	raw, err := svc.serviceGet(url, svc.Secrets.AuthSharedSecret)
+	raw, err := svc.serviceGet(url, svc.Secrets.UserJWTKey)
 	if err != nil {
 		log.Printf("ERROR: user request failed: %s", err.string())
 		c.String(err.StatusCode, err.Message)
@@ -410,6 +487,62 @@ func (svc *serviceContext) getUserBills(c *gin.Context) {
 func (svc *serviceContext) getUserCheckouts(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: get checkouts for %s", computeID)
+	fields := "blockList{amount,block{description},item{key}},"
+	fields += "circRecordList{circulationRule{billStructure{maxFee}},dueDate,overdue,estimatedOverdueAmount,recallDueDate,renewalDate,"
+	fields += "library{description},item{key,barcode,currentLocation,call{dispCallNumber,bib{key,author,title}}}}"
+	url := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&i&includeFields=%s", computeID, fields)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
+	if sirsiErr != nil {
+		log.Printf("ERROR: get sirsi user %s checkouts failed: %s", computeID, sirsiErr.string())
+		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		return
+	}
+
+	var coResp sirsiCheckoutsResp
+	parseErr := json.Unmarshal(sirsiRaw, &coResp)
+	if parseErr != nil {
+		log.Printf("ERROR: unabel to parse checkouts response: %s", parseErr.Error())
+		c.String(http.StatusInternalServerError, parseErr.Error())
+		return
+	}
+
+	if coResp.TotalResults == 0 || coResp.TotalResults > 1 {
+		log.Printf("INFO: checkouts for %s not found", computeID)
+		c.String(http.StatusBadRequest, fmt.Sprintf("holds for %s not found", computeID))
+		return
+	}
+
+	var checkouts []checkoutDetails
+	blockList := coResp.Result[0].Fields.BlockList
+	for _, cr := range coResp.Result[0].Fields.CircRecordList {
+		coCall := cr.Fields.Item.Fields.Call
+		bills := make([]checkoutBill, 0)
+		for _, br := range blockList {
+			if br.Fields.Item.Key == cr.Fields.Item.Key {
+				bills = append(bills, checkoutBill{
+					Amount: br.Fields.Amount.Amount,
+					Label:  br.Fields.Block.Fields.Description,
+				})
+			}
+		}
+
+		coItem := checkoutDetails{ID: coCall.Fields.Bib.Key}
+		coItem.Title = coCall.Fields.Bib.Fields.Title
+		coItem.Author = coCall.Fields.Bib.Fields.Author
+		coItem.Barcode = cr.Fields.Item.Fields.Barcode
+		coItem.CallNumber = coCall.Fields.DispCallNumber
+		coItem.Library = cr.Fields.Library.Fields.Description
+		// currLocation
+		coItem.Due = cr.Fields.DueDate
+		coItem.OverDue = len(bills) > 0
+		coItem.OverdueFee = cr.Fields.EstimatedOverdueAmount.Amount
+		coItem.Bills = bills
+		coItem.RecallDueDate = cr.Fields.RecallDueDate
+		coItem.RenewDate = cr.Fields.RenewalDate
+
+		checkouts = append(checkouts, coItem)
+	}
+	c.JSON(http.StatusOK, checkouts)
 }
 
 func (svc *serviceContext) getUserHolds(c *gin.Context) {

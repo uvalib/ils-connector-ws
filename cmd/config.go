@@ -15,10 +15,8 @@ type sirsiConfig struct {
 }
 
 type secretsConfig struct {
-	VirgoJWTKey      string
-	VirgoJWTSecret   string
-	AuthSharedSecret string
-	SecretKeyBase    string
+	VirgoJWTKey string
+	UserJWTKey  string
 }
 
 type serviceConfig struct {
@@ -36,9 +34,7 @@ func loadConfiguration() *serviceConfig {
 
 	// secrets and keys
 	flag.StringVar(&cfg.Secrets.VirgoJWTKey, "jwtkey", "", "JWT signature key")
-	flag.StringVar(&cfg.Secrets.VirgoJWTSecret, "jwtsecret", "", "JWT signature secret")
-	flag.StringVar(&cfg.Secrets.AuthSharedSecret, "authsecret", "", "Auth Shared secret (for user service)")
-	flag.StringVar(&cfg.Secrets.SecretKeyBase, "secretbase", "", "JWT base secret")
+	flag.StringVar(&cfg.Secrets.UserJWTKey, "userkey", "", "Auth Shared secret for user service")
 
 	// sirsi config
 	flag.StringVar(&cfg.Sirsi.WebServicesURL, "sirsiurl", "", "Sirsi web services url")
@@ -58,14 +54,8 @@ func loadConfiguration() *serviceConfig {
 	if cfg.Secrets.VirgoJWTKey == "" {
 		log.Fatal("jwtkey param is required")
 	}
-	if cfg.Secrets.VirgoJWTSecret == "" {
-		log.Fatal("jwtsecret param is required")
-	}
-	if cfg.Secrets.AuthSharedSecret == "" {
+	if cfg.Secrets.UserJWTKey == "" {
 		log.Fatal("authsecret param is required")
-	}
-	if cfg.Secrets.SecretKeyBase == "" {
-		log.Fatal("secretbase param is required")
 	}
 	if cfg.Sirsi.WebServicesURL == "" {
 		log.Fatal("sirsiurl param is required")
