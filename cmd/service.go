@@ -30,6 +30,7 @@ type serviceContext struct {
 	Version        string
 	SirsiConfig    sirsiConfig
 	SirsiSession   sirsiSessionData
+	Locations      locationContext
 	Secrets        secretsConfig
 	VirgoURL       string
 	PDAURL         string
@@ -155,6 +156,7 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 	hcMap := make(map[string]hcResp)
 
 	// sirsi healthcheck
+	sirsiUnavailable := false
 	sirsiSignedIn := true
 	if svc.SirsiSession.SessionToken == "" || svc.SirsiSession.isExpired() {
 		err := svc.sirsiLogin()
@@ -162,6 +164,9 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 			log.Printf("ERROR: %s", err.Error())
 			hcMap["sirsi"] = hcResp{Healthy: false, Message: err.Error()}
 			sirsiSignedIn = false
+			if strings.Contains(err.Error(), "503") {
+				sirsiUnavailable = true
+			}
 		}
 	}
 	if sirsiSignedIn {
@@ -192,7 +197,11 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 		hcMap["pda"] = hcResp{Healthy: true}
 	}
 
-	c.JSON(http.StatusOK, hcMap)
+	if sirsiUnavailable {
+		c.JSON(http.StatusInternalServerError, hcMap)
+	} else {
+		c.JSON(http.StatusOK, hcMap)
+	}
 }
 
 func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *requestError) {

@@ -532,7 +532,10 @@ func (svc *serviceContext) getUserCheckouts(c *gin.Context) {
 		coItem.Barcode = cr.Fields.Item.Fields.Barcode
 		coItem.CallNumber = coCall.Fields.DispCallNumber
 		coItem.Library = cr.Fields.Library.Fields.Description
-		// currLocation
+		loc := svc.Locations.findLocation(cr.Fields.Item.Fields.CurrentLocation.Key)
+		if loc != nil {
+			coItem.CurrentLocation = loc.Description
+		}
 		coItem.Due = cr.Fields.DueDate
 		coItem.OverDue = len(bills) > 0
 		coItem.OverdueFee = cr.Fields.EstimatedOverdueAmount.Amount

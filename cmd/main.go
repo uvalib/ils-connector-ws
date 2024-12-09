@@ -39,7 +39,7 @@ func main() {
 
 	router.GET("/users/:compute_id", svc.sirsiAuthMiddleware, svc.getUserInfo)
 	router.GET("/users/:compute_id/bills", svc.sirsiAuthMiddleware, svc.getUserBills)
-	router.GET("/users/:compute_id/checkouts", svc.sirsiAuthMiddleware, svc.getUserCheckouts)
+	router.GET("/users/:compute_id/checkouts", svc.sirsiAuthMiddleware, svc.locationsMiddleware, svc.getUserCheckouts)
 	router.GET("/users/:compute_id/holds", svc.sirsiAuthMiddleware, svc.getUserHolds)
 
 	portStr := fmt.Sprintf(":%d", cfg.Port)
