@@ -238,6 +238,21 @@ func (svc *serviceContext) sirsiGet(client *http.Client, uri string) ([]byte, *r
 	return resp, err
 }
 
+func (svc *serviceContext) sirsiPost(client *http.Client, uri string, data interface{}) ([]byte, *requestError) {
+	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
+	log.Printf("INFO: sirsi post request: %s", url)
+	startTime := time.Now()
+	b, _ := json.Marshal(data)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(b))
+	svc.setSirsiHeaders(req, true)
+	rawResp, rawErr := client.Do(req)
+	resp, err := handleAPIResponse(url, rawResp, rawErr)
+	elapsedNanoSec := time.Since(startTime)
+	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
+	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	return resp, err
+}
+
 func (svc *serviceContext) setSirsiHeaders(req *http.Request, includeAuth bool) {
 	req.Header.Set("x-sirs-clientID", svc.SirsiConfig.ClientID)
 	req.Header.Set("x-sirs-locale", "en_US")
