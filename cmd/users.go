@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -452,7 +453,7 @@ func (svc *serviceContext) getUserBills(c *gin.Context) {
 	var billResp sirsiBillResponse
 	parseErr := json.Unmarshal(sirsiRaw, &billResp)
 	if parseErr != nil {
-		log.Printf("ERROR: unabel to parse billd response: %s", parseErr.Error())
+		log.Printf("ERROR: unable to parse billd response: %s", parseErr.Error())
 		c.String(http.StatusInternalServerError, parseErr.Error())
 		return
 	}
@@ -484,32 +485,72 @@ func (svc *serviceContext) getUserBills(c *gin.Context) {
 	c.JSON(http.StatusOK, bills)
 }
 
+func (svc *serviceContext) getUserCheckoutsCSV(c *gin.Context) {
+	computeID := c.Param("compute_id")
+	log.Printf("INFO: get checkouts csv for %s", computeID)
+	checkouts, err := svc.getSirsiUserCheckouts(computeID)
+	if err != nil {
+		log.Printf("ERROR: unable to get user %s checkouts csv: %s", computeID, err.string())
+		c.String(err.StatusCode, err.Message)
+		return
+	}
+
+	var csvRecs [][]string
+	colsNames := []string{
+		"Id", "Title", "Author", "Barcode", "Call Number", "Library", "Current Location", "Due",
+		"Over Due", "Overdue Fee", "Bills", "Recall Due Date", "Renew Date"}
+	csvRecs = append(csvRecs, colsNames)
+	for _, co := range checkouts {
+		var bills []string
+		if len(co.Bills) > 0 {
+			for _, b := range co.Bills {
+				r := fmt.Sprintf("{reason: %s, amount: %s}", b.Label, b.Amount)
+				bills = append(bills, r)
+			}
+		}
+		row := []string{
+			co.ID, co.Title, co.Author, co.Barcode, co.CallNumber, co.Library, co.CurrentLocation,
+			co.Due, fmt.Sprintf("%t", co.OverDue), co.OverdueFee, strings.Join(bills, ","), co.RecallDueDate, co.RenewDate,
+		}
+		csvRecs = append(csvRecs, row)
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s_checkouts.csv", computeID))
+	c.Header("Content-Type", "text/csv")
+	csvW := csv.NewWriter(c.Writer)
+	csvW.WriteAll(csvRecs)
+}
+
+// ARK3CX and pc4v have bills on dev
 func (svc *serviceContext) getUserCheckouts(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: get checkouts for %s", computeID)
+	checkouts, err := svc.getSirsiUserCheckouts(computeID)
+	if err != nil {
+		log.Printf("ERROR: unable to get user %s checkouts: %s", computeID, err.string())
+		c.String(err.StatusCode, err.Message)
+		return
+	}
+	c.JSON(http.StatusOK, checkouts)
+}
+
+func (svc *serviceContext) getSirsiUserCheckouts(computeID string) ([]checkoutDetails, *requestError) {
 	fields := "blockList{amount,block{description},item{key}},"
 	fields += "circRecordList{circulationRule{billStructure{maxFee}},dueDate,overdue,estimatedOverdueAmount,recallDueDate,renewalDate,"
 	fields += "library{description},item{key,barcode,currentLocation,call{dispCallNumber,bib{key,author,title}}}}"
 	url := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&i&includeFields=%s", computeID, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
 	if sirsiErr != nil {
-		log.Printf("ERROR: get sirsi user %s checkouts failed: %s", computeID, sirsiErr.string())
-		c.String(sirsiErr.StatusCode, sirsiErr.Message)
-		return
+		return nil, sirsiErr
 	}
 
 	var coResp sirsiCheckoutsResp
 	parseErr := json.Unmarshal(sirsiRaw, &coResp)
 	if parseErr != nil {
-		log.Printf("ERROR: unabel to parse checkouts response: %s", parseErr.Error())
-		c.String(http.StatusInternalServerError, parseErr.Error())
-		return
+		return nil, &requestError{StatusCode: http.StatusInternalServerError, Message: parseErr.Error()}
 	}
 
 	if coResp.TotalResults == 0 || coResp.TotalResults > 1 {
-		log.Printf("INFO: checkouts for %s not found", computeID)
-		c.String(http.StatusBadRequest, fmt.Sprintf("holds for %s not found", computeID))
-		return
+		return nil, &requestError{StatusCode: http.StatusBadRequest, Message: fmt.Sprintf("holds for %s not found", computeID)}
 	}
 
 	var checkouts []checkoutDetails
@@ -545,7 +586,7 @@ func (svc *serviceContext) getUserCheckouts(c *gin.Context) {
 
 		checkouts = append(checkouts, coItem)
 	}
-	c.JSON(http.StatusOK, checkouts)
+	return checkouts, nil
 }
 
 func (svc *serviceContext) getUserHolds(c *gin.Context) {
@@ -563,7 +604,7 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 	var holdResp sirsiHoldsResp
 	parseErr := json.Unmarshal(sirsiRaw, &holdResp)
 	if parseErr != nil {
-		log.Printf("ERROR: unabel to parse holds response: %s", parseErr.Error())
+		log.Printf("ERROR: unable to parse holds response: %s", parseErr.Error())
 		c.String(http.StatusInternalServerError, parseErr.Error())
 		return
 	}

@@ -118,9 +118,29 @@ func (lc *locationContext) isOnShelfLocation(key string) bool {
 	return match
 }
 
+func (lc *locationContext) isOnShelfLibrary(key string) bool {
+	match := false
+	for _, loc := range lc.OnShelf.Libraries {
+		if loc == strings.TrimSpace(strings.ToUpper(key)) {
+			match = true
+		}
+	}
+	return match
+}
+
 func (lc *locationContext) isNonCirculatingLocation(key string) bool {
 	match := false
 	for _, loc := range lc.NonCirculating.Locations {
+		if loc == strings.TrimSpace(strings.ToUpper(key)) {
+			match = true
+		}
+	}
+	return match
+}
+
+func (lc *locationContext) isNonCirculatingLibrary(key string) bool {
+	match := false
+	for _, loc := range lc.NonCirculating.Libraries {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
 			match = true
 		}
