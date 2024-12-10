@@ -239,13 +239,13 @@ type userAddress struct {
 }
 
 type userDetails struct {
-	ID            string `json:"id"`
+	ID            string `json:"id,omitempty"`
 	CommunityUser bool   `json:"communityUser"`
-	Title         string `json:"title"`
-	Department    string `json:"department"`
-	Address       string `json:"address"`
-	Private       string `json:"private"`
-	Description   string `json:"description"`
+	Title         string `json:"title,omitempty"`
+	Department    string `json:"department,omitempty"`
+	Address       string `json:"address,omitempty"`
+	Private       string `json:"private,omitempty"`
+	Description   string `json:"description,omitempty"`
 	Barcode       string `json:"barcode"`
 	Key           string `json:"key"`
 	DisplayName   string `json:"displayName"`
@@ -330,12 +330,9 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	url := fmt.Sprintf("%s/user/%s", svc.UserInfoURL, computeID)
 	raw, err := svc.serviceGet(url, svc.Secrets.UserJWTKey)
 	if err != nil {
-		log.Printf("ERROR: user request failed: %s", err.string())
-		c.String(err.StatusCode, err.Message)
-		return
-	}
-
-	if string(raw) != "" {
+		log.Printf("INFO: user %s not found in user-ws; flagging as community user", computeID)
+		user.CommunityUser = true
+	} else {
 		log.Printf("INFO: parse user-ews response [%s]", raw)
 		var userResp userInfoRespData
 		err := json.Unmarshal(raw, &userResp)
@@ -359,9 +356,6 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 			user.Description = strings.Join(userResp.User.Description, ", ")
 		}
 		user.Private = userResp.User.Private
-	} else {
-		log.Printf("INFO: user %s not in user-ws; flagging as community user", computeID)
-		user.CommunityUser = true
 	}
 
 	log.Printf("INFO: lookup user %s in sirsi", computeID)
