@@ -170,7 +170,7 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 		}
 	}
 	if sirsiSignedIn {
-		url := fmt.Sprintf("%s/user/staff/key/%s", svc.SirsiConfig.WebServicesURL, svc.SirsiSession.StaffKey)
+		url := fmt.Sprintf("/user/staff/key/%s", svc.SirsiSession.StaffKey)
 		_, err := svc.sirsiGet(svc.HTTPClient, url)
 		if err != nil {
 			hcMap["sirsi"] = hcResp{Healthy: false, Message: err.string()}
