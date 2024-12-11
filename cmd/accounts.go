@@ -106,3 +106,62 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	}
 	c.String(http.StatusOK, "password changed")
 }
+
+func (svc *serviceContext) forgotPassword(c *gin.Context) {
+	computeID := c.Param("compute_id")
+	log.Printf("INFO: user %s forgot password", computeID)
+	data := struct {
+		Login    string `json:"login"`
+		ResetURL string `json:"resetPinUrl"`
+	}{
+		Login:    computeID,
+		ResetURL: fmt.Sprintf("%s/signin?token=<RESET_PIN_TOKEN>", svc.VirgoURL),
+	}
+	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/resetMyPin", data)
+	if sirsiErr != nil {
+		log.Printf("ERROR: %s forgot password failed: %s", computeID, sirsiErr.string())
+		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		return
+	}
+	c.String(http.StatusOK, "ok")
+}
+
+func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
+	var qp struct {
+		Token   string `json:"token"`
+		NewPass string `json:"password"`
+	}
+	qpErr := c.ShouldBindJSON(&qp)
+	if qpErr != nil {
+		log.Printf("ERROR: invalid change password payload: %v", qpErr)
+		c.String(http.StatusBadRequest, "Invalid request")
+		return
+	}
+
+	data := struct {
+		Token    string `json:"resetPinToken"`
+		Password string `json:"newPin"`
+	}{
+		Token:    qp.Token,
+		Password: qp.NewPass,
+	}
+	payloadBytes, _ := json.Marshal(data)
+	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	svc.setSirsiHeaders(req, "PATRON", "")
+	log.Printf("%+v", req.Header)
+	rawResp, rawErr := svc.HTTPClient.Do(req)
+	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
+	if changeErr != nil {
+		log.Printf("WARNING: token password change failed: %s", changeErr.string())
+		var msg sirsiMessageList
+		err := json.Unmarshal([]byte(changeErr.Message), &msg)
+		if err != nil {
+			c.String(http.StatusInternalServerError, changeErr.string())
+		} else {
+			c.String(http.StatusUnauthorized, msg.MessageList[0].Message)
+		}
+		return
+	}
+	c.String(http.StatusOK, "token password changed")
+}

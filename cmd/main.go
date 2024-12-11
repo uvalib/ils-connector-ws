@@ -40,6 +40,8 @@ func main() {
 	// account management
 	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)
 	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword)
+	router.POST("/users/change_password_with_token", svc.sirsiAuthMiddleware, svc.changePasswordWithToken)
+	router.POST("/users/:compute_id/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword)
 
 	// user data
 	router.GET("/users/:compute_id", svc.sirsiAuthMiddleware, svc.getUserInfo)
