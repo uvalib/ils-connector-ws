@@ -16,6 +16,18 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
+type sirsiSigniResponse struct {
+	StaffKey     string `json:"staffKey"`
+	SessionToken string `json:"sessionToken"`
+}
+
+type sirsiMessageList struct {
+	MessageList []struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"messageList"`
+}
+
 type sirsiSessionData struct {
 	StaffKey     string
 	SessionToken string
@@ -99,7 +111,7 @@ func (svc *serviceContext) sirsiLogin() error {
 	}
 	payloadBytes, _ := json.Marshal(payloadOBJ)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	svc.setSirsiHeaders(req, false)
+	svc.setSirsiHeaders(req, "STAFF", "")
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
@@ -109,11 +121,7 @@ func (svc *serviceContext) sirsiLogin() error {
 		return fmt.Errorf("sirsi login failed with %d: %s", err.StatusCode, err.Message)
 	}
 
-	type signinResp struct {
-		StaffKey     string `json:"staffKey"`
-		SessionToken string `json:"sessionToken"`
-	}
-	var respObj signinResp
+	var respObj sirsiSigniResponse
 	parseErr := json.Unmarshal(resp, &respObj)
 	if parseErr != nil {
 		return fmt.Errorf("unable to parse login response: %s", parseErr.Error())
@@ -229,7 +237,7 @@ func (svc *serviceContext) sirsiGet(client *http.Client, uri string) ([]byte, *r
 	log.Printf("INFO: sirsi get request: %s", url)
 	startTime := time.Now()
 	req, _ := http.NewRequest("GET", url, nil)
-	svc.setSirsiHeaders(req, true)
+	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
 	rawResp, rawErr := client.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
@@ -244,7 +252,7 @@ func (svc *serviceContext) sirsiPost(client *http.Client, uri string, data inter
 	startTime := time.Now()
 	b, _ := json.Marshal(data)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(b))
-	svc.setSirsiHeaders(req, true)
+	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
 	rawResp, rawErr := client.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
@@ -253,17 +261,17 @@ func (svc *serviceContext) sirsiPost(client *http.Client, uri string, data inter
 	return resp, err
 }
 
-func (svc *serviceContext) setSirsiHeaders(req *http.Request, includeAuth bool) {
+func (svc *serviceContext) setSirsiHeaders(req *http.Request, role string, authToken string) {
 	req.Header.Set("x-sirs-clientID", svc.SirsiConfig.ClientID)
 	req.Header.Set("x-sirs-locale", "en_US")
 	req.Header.Set("SD-Originating-App-Id", "Virgo")
-	req.Header.Set("SD-Preferred-Role", "STAFF")
+	req.Header.Set("SD-Preferred-Role", role)
 	req.Header.Set("SD-Working-LibraryID", svc.SirsiConfig.Library)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
-	if includeAuth {
-		req.Header.Set("x-sirs-sessionToken", svc.SirsiSession.SessionToken)
+	if authToken != "" {
+		req.Header.Set("x-sirs-sessionToken", authToken)
 	}
 }
 

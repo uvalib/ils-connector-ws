@@ -645,41 +645,6 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 	c.JSON(http.StatusOK, holdResponse{Holds: holds})
 }
 
-func (svc *serviceContext) checkUserPass(c *gin.Context) {
-	var passReq struct {
-		ComputeID string `json:"computeID"`
-		Password  string `json:"password"`
-	}
-	err := c.ShouldBindJSON(&passReq)
-	if err != nil {
-		log.Printf("ERROR: Unable to parse check password request: %s", err.Error())
-		c.String(http.StatusBadRequest, err.Error())
-		return
-	}
-	log.Printf("INFO: check password for %s", passReq.ComputeID)
-	data := struct {
-		AlternateID string `json:"alternateID"`
-		Password    string `json:"password"`
-	}{
-		AlternateID: passReq.ComputeID,
-		Password:    passReq.Password,
-	}
-	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/authenticate", data)
-	if sirsiErr != nil {
-		log.Printf("ERROR: check pass for %s  failed: %s", passReq.ComputeID, sirsiErr.string())
-		c.String(http.StatusUnauthorized, "invalid")
-		return
-	}
-	c.String(http.StatusOK, "valid")
-}
-
-/*
-curl --request POST \
-  --url http://localhost:8185/user/patron/authenticate \
-  --header 'Content-Type: application/json' \
-  --data '{"computeD": "C000011111", "password": "goat"}'
-*/
-
 func extractAddress(destAddr *userAddress, srcAddressData []sirsiAddressData) {
 	for _, a1 := range srcAddressData {
 		if a1.Fields.Code.Key == "LINE1" {

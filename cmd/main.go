@@ -37,7 +37,11 @@ func main() {
 	router.GET("/version", svc.getVersion)
 	router.GET("/healthcheck", svc.healthCheck)
 
-	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkUserPass)
+	// account management
+	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)
+	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword)
+
+	// user data
 	router.GET("/users/:compute_id", svc.sirsiAuthMiddleware, svc.getUserInfo)
 	router.GET("/users/:compute_id/bills", svc.sirsiAuthMiddleware, svc.getUserBills)
 	router.GET("/users/:compute_id/checkouts", svc.sirsiAuthMiddleware, svc.locationsMiddleware, svc.getUserCheckouts)
