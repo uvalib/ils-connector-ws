@@ -44,6 +44,10 @@ type sirsiRegistrationResponse struct {
 	Barcode      string   `json:"barcode"`
 }
 
+type sirsiActivateResponse struct {
+	Success bool `json:"success"`
+}
+
 func (r *sirsiRegistration) validate() error {
 	var errors []string
 	if r.FirstName == "" {
@@ -340,4 +344,29 @@ func (svc *serviceContext) registerNewUser(c *gin.Context) {
 func (svc *serviceContext) activateUser(c *gin.Context) {
 	token := c.Param("token")
 	log.Printf("INFO: activate new account with %s", token)
+	req := struct {
+		Token string `json:"activationToken"`
+	}{
+		Token: token,
+	}
+	resp, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/activate", req)
+	if sirsiErr != nil {
+		log.Printf("ERROR: activate failed: %s", sirsiErr.string())
+		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		return
+	}
+
+	var actResp sirsiActivateResponse
+	parsErr := json.Unmarshal(resp, &actResp)
+	if parsErr != nil {
+		log.Printf("ERROR: unable to parse activate response: %s", parsErr)
+		c.String(http.StatusInternalServerError, parsErr.Error())
+		return
+	}
+	if actResp.Success == false {
+		log.Printf("INFO: activate %s returned success=false", token)
+		c.String(http.StatusUnprocessableEntity, "failed")
+		return
+	}
+	c.String(http.StatusOK, "activated")
 }
