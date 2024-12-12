@@ -450,7 +450,7 @@ func (svc *serviceContext) getUserBills(c *gin.Context) {
 		return
 	}
 
-	var bills []billItem
+	bills := make([]billItem, 0)
 	for _, bl := range billResp.Result[0].Fields.BlockList {
 		bill := billItem{}
 		bill.Date = bl.Fields.CreateDate

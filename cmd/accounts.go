@@ -96,6 +96,10 @@ func (a tmpAccount) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+//	curl --request POST  \
+//	  --url http://localhost:8185/users/check_password \
+//	  --header 'Content-Type: application/json' \
+//	  --data '{"computeID": "C000011111", "password": "PASS"}'
 func (svc *serviceContext) checkPassword(c *gin.Context) {
 	var passReq struct {
 		ComputeID string `json:"computeID"`
@@ -124,6 +128,10 @@ func (svc *serviceContext) checkPassword(c *gin.Context) {
 	c.String(http.StatusOK, "valid")
 }
 
+//	curl --request POST  \
+//	  --url http://localhost:8185/users/change_password \
+//	  --header 'Content-Type: application/json' \
+//	  --data '{"computeID": "C000011111", "currPassword": "PASS!", "newPassword": "NEW"}'
 func (svc *serviceContext) changePassword(c *gin.Context) {
 	var passReq struct {
 		CurrPass  string `json:"currPassword"`
@@ -193,6 +201,7 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	c.String(http.StatusOK, "password changed")
 }
 
+// curl -X POST http://localhost:8185/users/C000011111/forgot_password
 func (svc *serviceContext) forgotPassword(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: user %s forgot password", computeID)
@@ -212,6 +221,10 @@ func (svc *serviceContext) forgotPassword(c *gin.Context) {
 	c.String(http.StatusOK, "ok")
 }
 
+//	curl --request POST  \
+//		--url http://localhost:8185/users/change_password_with_token \
+//		--header 'Content-Type: application/json' \
+//		--data '{"token": "7bbaN2fr1WDWueRLpq8bB8npsow4mJ8iK7ilXlAP64zq6g1jvZ", "password": "PASS"}'
 func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 	var qp struct {
 		Token   string `json:"token"`
@@ -252,11 +265,11 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 }
 
 //	curl --request POST  \
-//	  --url http://localhost:8185/users/register \
-//	  --header 'Content-Type: application/json' \
-//	  --data '{"firstName": "newFirst", "lastName": "newLast", password": "PASSWORD", \
-//	           "email", "lf6f@virginia.edu", "phone": "N/A", "address1": "123 fake", "address2": "",
-//				  "city": "Charlottesville", "state": "VA", "zip":"220902"}'
+//		--url http://localhost:8185/users/register \
+//		--header 'Content-Type: application/json' \
+//		--data '{"firstName": "first1", "lastName": "last1", "password": "PASS",
+//					"email": "louffoster@gmail.com", "phone": "N/A", "address1": "123 fake", "address2": "",
+//					"city": "Charlottesville", "state": "VA", "zip":"220902"}'
 func (svc *serviceContext) registerNewUser(c *gin.Context) {
 	var tmpAcct tmpAccount
 	qpErr := c.ShouldBindJSON(&tmpAcct)
@@ -334,6 +347,7 @@ func (svc *serviceContext) registerNewUser(c *gin.Context) {
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
 	req.Header.Set("Accept", "application/vnd.sirsidynix.roa.resource.v2+json")
 	req.Header.Set("Content-Type", "application/vnd.sirsidynix.roa.resource.v2+json")
+	req.Header.Set("SD-Working-LibraryID", svc.SirsiConfig.Library)
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
 	if changeErr != nil {

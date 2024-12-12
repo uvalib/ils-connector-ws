@@ -274,7 +274,6 @@ func (svc *serviceContext) setSirsiHeaders(req *http.Request, role string, authT
 	req.Header.Set("x-sirs-locale", "en_US")
 	req.Header.Set("SD-Originating-App-Id", "Virgo")
 	req.Header.Set("SD-Preferred-Role", role)
-	req.Header.Set("SD-Working-LibraryID", svc.SirsiConfig.Library)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
