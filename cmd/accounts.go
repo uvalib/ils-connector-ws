@@ -315,15 +315,17 @@ func (svc *serviceContext) registerNewUser(c *gin.Context) {
 	log.Printf("INFO: update temp user %s (%s) registration with temp barcode and circhistory",
 		regResp.Patron.Key, regResp.Barcode)
 	idPayload := struct {
-		Resource    string `json:"@resource"`
-		Key         string `json:"@key"`
-		AltID       string `json:"alternateID"`
-		CircHistory string `json:"CIRCRULE"`
+		Resource         string `json:"@resource"`
+		Key              string `json:"@key"`
+		AltID            string `json:"alternateID"`
+		CircHistory      string `json:"keepCircHistory"`
+		PreferredAddress string `json:"preferredAddress"`
 	}{
-		Resource:    "/user/patron",
-		Key:         regResp.Patron.Key,
-		AltID:       regResp.Barcode,
-		CircHistory: "CIRCRULE",
+		Resource:         "/user/patron",
+		Key:              regResp.Patron.Key,
+		AltID:            regResp.Barcode,
+		CircHistory:      "CIRCRULE",
+		PreferredAddress: "3",
 	}
 
 	payloadBytes, _ := json.Marshal(idPayload)
