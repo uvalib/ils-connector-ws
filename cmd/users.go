@@ -34,14 +34,6 @@ type sirsiUserSearchResp struct {
 	Result       []sirsiUserData `json:"result"`
 }
 
-type sirsiKey struct {
-	Key string `json:"key"`
-}
-
-type sirsiDescription struct {
-	Description string `json:"description"`
-}
-
 type sirsiAddressData struct {
 	Key    string `json:"key"`
 	Fields struct {

@@ -21,6 +21,14 @@ type sirsiSigniResponse struct {
 	SessionToken string `json:"sessionToken"`
 }
 
+type sirsiKey struct {
+	Key string `json:"key"`
+}
+
+type sirsiDescription struct {
+	Description string `json:"description"`
+}
+
 type sirsiMessageList struct {
 	MessageList []struct {
 		Code    string `json:"code"`

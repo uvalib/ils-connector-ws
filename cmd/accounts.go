@@ -6,9 +6,91 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+type tmpAccount struct {
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Password  string `json:"password"`
+	Email     string `json:"email"`
+	Phone     string `json:"phone"`
+	Address1  string `json:"address1"`
+	Address2  string `json:"address2"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	Zip       string `json:"zip"`
+}
+
+type sirsiRegistration struct {
+	FirstName        string `json:"patron-firstName"`
+	LastName         string `json:"patron-lastName"`
+	Password         string `json:"patron-pin"`
+	Email            string `json:"patronAddress3-EMAIL"`
+	Phone            string `json:"patronAddress1-PHONE"`
+	AddressLine1     string `json:"patronAddress1-LINE1"`
+	AddressLine2     string `json:"patronAddress1-LINE2"`
+	AddressLine3     string `json:"patronAddress1-LINE3"` // city, state
+	Zip              string `json:"patronAddress1-ZIP"`
+	PreferredAddress string `json:"patron-preferredAddress"` // harcoded 3
+	ActivationURL    string `json:"activationUrl"`
+}
+
+type sirsiRegistrationResponse struct {
+	Patron       sirsiKey `json:"patron"`
+	SessionToken string   `json:"sessionToken"`
+	Barcode      string   `json:"barcode"`
+}
+
+func (r *sirsiRegistration) validate() error {
+	var errors []string
+	if r.FirstName == "" {
+		errors = append(errors, "first name is reqired")
+	}
+	if r.LastName == "" {
+		errors = append(errors, "last name is reqired")
+	}
+	if r.Password == "" {
+		errors = append(errors, "password is reqired")
+	}
+	if r.Email == "" {
+		errors = append(errors, "email is reqired")
+	}
+	if r.Phone == "" {
+		errors = append(errors, "phone is reqired")
+	}
+	if r.AddressLine1 == "" {
+		errors = append(errors, "address1 is reqired")
+	}
+	if r.AddressLine3 == "" {
+		errors = append(errors, "city/state is reqired")
+	}
+	if r.Zip == "" {
+		errors = append(errors, "zip is reqired")
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf(strings.Join(errors, ","))
+	}
+	return nil
+}
+
+func (a tmpAccount) MarshalJSON() ([]byte, error) {
+	m := map[string]string{
+		"firstName": fmt.Sprintf("%s", a.FirstName),
+		"lastName":  fmt.Sprintf("%s", a.LastName),
+		"email":     fmt.Sprintf("%s", a.Email),
+		"phone":     fmt.Sprintf("%s", a.Phone),
+		"address1":  fmt.Sprintf("%s", a.Address1),
+		"address2":  fmt.Sprintf("%s", a.Address2),
+		"city":      fmt.Sprintf("%s", a.City),
+		"state":     fmt.Sprintf("%s", a.State),
+		"zip":       fmt.Sprintf("%s", a.Zip),
+	}
+	return json.Marshal(m)
+}
 
 func (svc *serviceContext) checkPassword(c *gin.Context) {
 	var passReq struct {
@@ -149,7 +231,6 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	svc.setSirsiHeaders(req, "PATRON", "")
-	log.Printf("%+v", req.Header)
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
 	if changeErr != nil {
@@ -164,4 +245,99 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 		return
 	}
 	c.String(http.StatusOK, "token password changed")
+}
+
+//	curl --request POST  \
+//	  --url http://localhost:8185/users/register \
+//	  --header 'Content-Type: application/json' \
+//	  --data '{"firstName": "newFirst", "lastName": "newLast", password": "PASSWORD", \
+//	           "email", "lf6f@virginia.edu", "phone": "N/A", "address1": "123 fake", "address2": "",
+//				  "city": "Charlottesville", "state": "VA", "zip":"220902"}'
+func (svc *serviceContext) registerNewUser(c *gin.Context) {
+	var tmpAcct tmpAccount
+	qpErr := c.ShouldBindJSON(&tmpAcct)
+	if qpErr != nil {
+		log.Printf("ERROR: invalid change register user payload: %v", qpErr)
+		c.String(http.StatusBadRequest, "Invalid request")
+		return
+	}
+	newUserBytes, _ := json.Marshal(tmpAcct)
+	log.Printf("INFO: register new user [%s]", newUserBytes)
+
+	log.Printf("INFO: create sirsi register payload")
+	payload := sirsiRegistration{
+		FirstName:        tmpAcct.FirstName,
+		LastName:         tmpAcct.LastName,
+		Password:         tmpAcct.Password,
+		Email:            tmpAcct.Email,
+		Phone:            tmpAcct.Phone,
+		AddressLine1:     tmpAcct.Address1,
+		AddressLine2:     tmpAcct.Address2,
+		AddressLine3:     fmt.Sprintf("%s, %s", tmpAcct.City, tmpAcct.State),
+		Zip:              tmpAcct.Zip,
+		PreferredAddress: "3",
+		ActivationURL:    fmt.Sprintf("%s/api/activateTempAccount/", svc.VirgoURL),
+	}
+	err := payload.validate()
+	if err != nil {
+		log.Printf("INFO: bad register request: %s", err.Error())
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	log.Printf("INFO: post user registration")
+	resp, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/register", payload)
+	if sirsiErr != nil {
+		log.Printf("WARNING: token password change failed: %s", sirsiErr.string())
+		var msg sirsiMessageList
+		err := json.Unmarshal([]byte(sirsiErr.Message), &msg)
+		if err != nil {
+			c.String(http.StatusInternalServerError, sirsiErr.string())
+		} else {
+			c.String(http.StatusBadRequest, msg.MessageList[0].Message)
+		}
+		return
+	}
+
+	var regResp sirsiRegistrationResponse
+	parsErr := json.Unmarshal(resp, &regResp)
+	if parsErr != nil {
+		log.Printf("ERROR: unable to parse registration response: %s", parsErr.Error())
+		c.String(http.StatusInternalServerError, parsErr.Error())
+		return
+	}
+
+	// registration was successful, now update the altID with TEMP barcode
+	log.Printf("INFO: update temp user %s (%s) registration with temp barcode and circhistory",
+		regResp.Patron.Key, regResp.Barcode)
+	idPayload := struct {
+		Resource    string `json:"@resource"`
+		Key         string `json:"@key"`
+		AltID       string `json:"alternateID"`
+		CircHistory string `json:"CIRCRULE"`
+	}{
+		Resource:    "/user/patron",
+		Key:         regResp.Patron.Key,
+		AltID:       regResp.Barcode,
+		CircHistory: "CIRCRULE",
+	}
+
+	payloadBytes, _ := json.Marshal(idPayload)
+	url := fmt.Sprintf("%s/user/patron/key/%s", svc.SirsiConfig.WebServicesURL, idPayload.Key)
+	req, _ := http.NewRequest("PUT", url, bytes.NewBuffer(payloadBytes))
+	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
+	req.Header.Set("Accept", "application/vnd.sirsidynix.roa.resource.v2+json")
+	req.Header.Set("Content-Type", "application/vnd.sirsidynix.roa.resource.v2+json")
+	rawResp, rawErr := svc.HTTPClient.Do(req)
+	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
+	if changeErr != nil {
+		log.Printf("WARNING: unable to update temp user %s: %s", regResp.Patron.Key, changeErr.string())
+	}
+
+	c.String(http.StatusOK, "registeration success")
+}
+
+func (svc *serviceContext) activateUser(c *gin.Context) {
+	token := c.Param("token")
+	log.Printf("INFO: activate new account with %s", token)
 }
