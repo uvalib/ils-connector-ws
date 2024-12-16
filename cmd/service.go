@@ -16,9 +16,18 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
+type sirsiStaffLoginReq struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
 type sirsiSigniResponse struct {
-	StaffKey     string `json:"staffKey"`
-	SessionToken string `json:"sessionToken"`
+	StaffKey          string `json:"staffKey"`
+	PinCreateDate     string `json:"pinCreateDate"`
+	PinExpirationDate any    `json:"pinExpirationDate"`
+	Name              string `json:"name"`
+	SessionToken      string `json:"sessionToken"`
+	Message           any    `json:"message"`
 }
 
 type sirsiKey struct {
@@ -110,10 +119,7 @@ func (svc *serviceContext) sirsiLogin() error {
 	svc.SirsiSession.SessionToken = ""
 	svc.SirsiSession.StaffKey = ""
 	url := fmt.Sprintf("%s/user/staff/login", svc.SirsiConfig.WebServicesURL)
-	payloadOBJ := struct {
-		Login    string `json:"login"`
-		Password string `json:"password"`
-	}{
+	payloadOBJ := sirsiStaffLoginReq{
 		Login:    svc.SirsiConfig.User,
 		Password: svc.SirsiConfig.Password,
 	}
