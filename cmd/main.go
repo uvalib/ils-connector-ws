@@ -51,7 +51,7 @@ func main() {
 	router.POST("/dibs/checkout", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.checkoutDiBS)
 
 	// metadata rights update
-	router.POST("/metadata/update_rights", svc.sirsiAuthMiddleware, svc.updateMetadataRights)
+	router.POST("/metadata/:cat_key/update_rights", svc.sirsiAuthMiddleware, svc.updateMetadataRights)
 
 	// account management
 	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)
