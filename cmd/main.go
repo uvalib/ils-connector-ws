@@ -37,6 +37,10 @@ func main() {
 	router.GET("/version", svc.getVersion)
 	router.GET("/healthcheck", svc.healthCheck)
 
+	// availability
+	router.GET("/availbility/list", svc.sirsiAuthMiddleware, svc.getAvailabilityList)
+	// TODO move API from v4-availability-ws here
+
 	// checkouts management
 	router.POST("/checkouts/renew", svc.sirsiAuthMiddleware, svc.renewCheckouts)
 
