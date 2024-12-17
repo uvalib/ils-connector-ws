@@ -64,9 +64,12 @@ func (svc *serviceContext) sirsiAuthMiddleware(c *gin.Context) {
 	}
 	c.Next()
 }
-func (svc *serviceContext) locationsMiddleware(c *gin.Context) {
+func (svc *serviceContext) refreshDataMiddleware(c *gin.Context) {
 	if time.Now().After(svc.Locations.RefreshAt) {
 		svc.refreshLocations()
+	}
+	if time.Now().After(svc.Libraries.RefreshAt) {
+		svc.refreshLibraries()
 	}
 	c.Next()
 }

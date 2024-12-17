@@ -79,5 +79,7 @@ func (svc *serviceContext) updateMetadataRights(c *gin.Context) {
 		return
 	}
 
+	// TODO update
+
 	c.JSON(http.StatusOK, bibRec)
 }

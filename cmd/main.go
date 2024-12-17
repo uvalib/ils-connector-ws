@@ -38,7 +38,7 @@ func main() {
 	router.GET("/healthcheck", svc.healthCheck)
 
 	// availability
-	router.GET("/availbility/list", svc.sirsiAuthMiddleware, svc.getAvailabilityList)
+	router.GET("/availability/list", svc.sirsiAuthMiddleware, svc.refreshDataMiddleware, svc.getAvailabilityList)
 	// TODO move API from v4-availability-ws here
 
 	// checkouts management
@@ -69,8 +69,8 @@ func main() {
 	// user data
 	router.GET("/users/:compute_id", svc.sirsiAuthMiddleware, svc.getUserInfo)
 	router.GET("/users/:compute_id/bills", svc.sirsiAuthMiddleware, svc.getUserBills)
-	router.GET("/users/:compute_id/checkouts", svc.sirsiAuthMiddleware, svc.locationsMiddleware, svc.getUserCheckouts)
-	router.GET("/users/:compute_id/checkouts.csv", svc.sirsiAuthMiddleware, svc.locationsMiddleware, svc.getUserCheckoutsCSV)
+	router.GET("/users/:compute_id/checkouts", svc.sirsiAuthMiddleware, svc.refreshDataMiddleware, svc.getUserCheckouts)
+	router.GET("/users/:compute_id/checkouts.csv", svc.sirsiAuthMiddleware, svc.refreshDataMiddleware, svc.getUserCheckoutsCSV)
 	router.GET("/users/:compute_id/holds", svc.sirsiAuthMiddleware, svc.getUserHolds)
 
 	// hold and scan requests; all but fill_hold is done by a virgo user and requires a virgo jwt

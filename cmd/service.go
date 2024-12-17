@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,6 +61,7 @@ type serviceContext struct {
 	SirsiConfig    sirsiConfig
 	SirsiSession   sirsiSessionData
 	Locations      locationContext
+	Libraries      libraryContext
 	Secrets        secretsConfig
 	VirgoURL       string
 	PDAURL         string
@@ -321,4 +323,13 @@ func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *
 	defer resp.Body.Close()
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	return bodyBytes, nil
+}
+
+func loadDataFile(filename string) []string {
+	bytes, err := os.ReadFile(filename)
+	if err != nil {
+		log.Printf("ERROR: unable to load %s: %s", filename, err.Error())
+		return make([]string, 0)
+	}
+	return strings.Split(string(bytes), "\n")
 }

@@ -4,22 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 )
 
 type locationContext struct {
 	Records        []locationRec
-	NonCirculating struct {
-		Libraries []string
-		Locations []string
-	}
-	OnShelf struct {
-		Libraries []string
-		Locations []string
-	}
-	RefreshAt time.Time
+	NonCirculating []string
+	OnShelf        []string
+	RefreshAt      time.Time
 }
 
 type sirsiLocationRec struct {
@@ -32,26 +25,23 @@ type sirsiLocationRec struct {
 }
 
 type locationRec struct {
-	ID             int    `json:"id"`
-	Key            string `json:"key"`
-	Description    string `json:"description"`
-	OnShelf        bool   `json:"onShelf"`
-	NonCirculating bool   `json:"nonCirculating"`
-	Online         bool   `json:"online"`
-	Unavailable    bool   `json:"unavailable"`
-	Shadowed       bool   `json:"shadowed"`
+	ID          int    `json:"id"`
+	Key         string `json:"key"`
+	Description string `json:"description"`
+	Online      bool   `json:"online"`
+	Shadowed    bool   `json:"shadowed"`
+	OnShelf     bool   `json:"on_shelf"`
+	Circulating bool   `json:"circulating"`
 }
 
 func (svc *serviceContext) refreshLocations() {
-	if len(svc.Locations.NonCirculating.Locations) == 0 {
-		log.Printf("INFO: load non-circulating data")
-		svc.Locations.NonCirculating.Libraries = loadLocationData("./data/noncirc-lib.txt")
-		svc.Locations.NonCirculating.Locations = loadLocationData("./data/noncirc-loc.txt")
+	if len(svc.Locations.NonCirculating) == 0 {
+		log.Printf("INFO: load non-circulating location data")
+		svc.Locations.NonCirculating = loadDataFile("./data/noncirc-loc.txt")
 	}
-	if len(svc.Locations.OnShelf.Locations) == 0 {
-		log.Printf("INFO: load on shelf data")
-		svc.Locations.OnShelf.Libraries = loadLocationData("./data/onshelf-lib.txt")
-		svc.Locations.OnShelf.Locations = loadLocationData("./data/onshelf-loc.txt")
+	if len(svc.Locations.OnShelf) == 0 {
+		log.Printf("INFO: load on shelf location data")
+		svc.Locations.OnShelf = loadDataFile("./data/onshelf-loc.txt")
 	}
 
 	locs, err := svc.getSirsiLocations()
@@ -86,9 +76,8 @@ func (svc *serviceContext) getSirsiLocations() ([]locationRec, error) {
 		loc.Key = sl.Key
 		loc.Description = sl.Fields.Description
 		loc.OnShelf = svc.Locations.isOnShelfLocation(sl.Key)
-		loc.NonCirculating = svc.Locations.isNonCirculatingLocation(sl.Key)
+		loc.Circulating = !svc.Locations.isNonCirculatingLocation(sl.Key)
 		loc.Online = svc.Locations.isOnlineLocation(sl.Key)
-		loc.Unavailable = svc.Locations.isUnavailableLocation(sl.Key)
 		loc.Shadowed = sl.Fields.Shadowed
 
 		locs = append(locs, loc)
@@ -110,17 +99,7 @@ func (lc *locationContext) findLocation(key string) *locationRec {
 
 func (lc *locationContext) isOnShelfLocation(key string) bool {
 	match := false
-	for _, loc := range lc.OnShelf.Locations {
-		if loc == strings.TrimSpace(strings.ToUpper(key)) {
-			match = true
-		}
-	}
-	return match
-}
-
-func (lc *locationContext) isOnShelfLibrary(key string) bool {
-	match := false
-	for _, loc := range lc.OnShelf.Libraries {
+	for _, loc := range lc.OnShelf {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
 			match = true
 		}
@@ -130,17 +109,7 @@ func (lc *locationContext) isOnShelfLibrary(key string) bool {
 
 func (lc *locationContext) isNonCirculatingLocation(key string) bool {
 	match := false
-	for _, loc := range lc.NonCirculating.Locations {
-		if loc == strings.TrimSpace(strings.ToUpper(key)) {
-			match = true
-		}
-	}
-	return match
-}
-
-func (lc *locationContext) isNonCirculatingLibrary(key string) bool {
-	match := false
-	for _, loc := range lc.NonCirculating.Libraries {
+	for _, loc := range lc.NonCirculating {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
 			match = true
 		}
@@ -186,13 +155,4 @@ func (lc *locationContext) unavailableLocations() []string {
 		"ORD-CANCLD",
 		"HEREDOC",
 	}
-}
-
-func loadLocationData(filename string) []string {
-	bytes, err := os.ReadFile(filename)
-	if err != nil {
-		log.Printf("ERROR: unable to load %s: %s", filename, err.Error())
-		return make([]string, 0)
-	}
-	return strings.Split(string(bytes), "\n")
 }

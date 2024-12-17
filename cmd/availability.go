@@ -1,33 +1,23 @@
 package main
 
-import "github.com/gin-gonic/gin"
+import (
+	"log"
+	"net/http"
 
-// RESPONSE FORMAT
-//
-//	{
-//		"availability_list": {
-//			 "libraries": [
-//				  {
-//						"id": 1,
-//						"key": "UVA-LIB",
-//						"description": "UVA Library",
-//						"on_shelf": false,
-//						"circulating": true
-//				  }
-//			 ],
-//			 "locations": [
-//				  {
-//						"id": 1,
-//						"key": "FASLIDEREF",
-//						"description": "Slide Collection Reference",
-//						"online": false,
-//						"shadowed": true,
-//						"on_shelf": false,
-//						"circulating": true
-//				  }
-//			 ]
-//		}
-//	}
+	"github.com/gin-gonic/gin"
+)
+
+type availabilityResponse struct {
+	AvailabilityList struct {
+		Libraries []libraryRec  `json:"libraries"`
+		Locations []locationRec `json:"locations"`
+	} `json:"availability_list"`
+}
+
 func (svc *serviceContext) getAvailabilityList(c *gin.Context) {
-	// TODO
+	log.Printf("INFO: get availability list")
+	resp := availabilityResponse{}
+	resp.AvailabilityList.Locations = svc.Locations.Records
+	resp.AvailabilityList.Libraries = svc.Libraries.Records
+	c.JSON(http.StatusOK, resp)
 }
