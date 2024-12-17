@@ -76,7 +76,7 @@ func (r *sirsiRegistration) validate() error {
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf(strings.Join(errors, ","))
+		return fmt.Errorf("%s", strings.Join(errors, ","))
 	}
 	return nil
 }
@@ -121,11 +121,43 @@ func (svc *serviceContext) checkPassword(c *gin.Context) {
 	}
 	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/authenticate", data)
 	if sirsiErr != nil {
-		log.Printf("ERROR: check pass for %s  failed: %s", passReq.ComputeID, sirsiErr.string())
-		c.String(http.StatusUnauthorized, "invalid")
+		if sirsiErr.StatusCode == 401 {
+			// some accounts have the computeID in the barcode field.. try that
+			log.Printf("INFO: alt id password check failed; try barcode")
+			bcErr := svc.checkBarcodePassword(passReq.ComputeID, passReq.Password)
+			if bcErr != nil {
+				if bcErr.StatusCode == 401 {
+					log.Printf("INFO: check pass for barcode %s failed: %s", passReq.ComputeID, sirsiErr.string())
+					c.String(http.StatusUnauthorized, "invalid")
+				} else {
+					log.Printf("ERROR: check pass for barcode %s  failed: %s", passReq.ComputeID, sirsiErr.string())
+					c.String(http.StatusInternalServerError, "invalid")
+				}
+			} else {
+				c.String(http.StatusOK, "valid")
+			}
+		} else {
+			log.Printf("ERROR: check pass for %s  failed: %s", passReq.ComputeID, sirsiErr.string())
+			c.String(http.StatusInternalServerError, "invalid")
+		}
 		return
 	}
 	c.String(http.StatusOK, "valid")
+}
+
+func (svc *serviceContext) checkBarcodePassword(computeID, pass string) *requestError {
+	data := struct {
+		Barcode  string `json:"barcode"`
+		Password string `json:"password"`
+	}{
+		Barcode:  computeID,
+		Password: pass,
+	}
+	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/authenticate", data)
+	if sirsiErr != nil {
+		return sirsiErr
+	}
+	return nil
 }
 
 //	curl --request POST  \

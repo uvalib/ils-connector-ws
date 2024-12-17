@@ -72,7 +72,7 @@ func (svc *serviceContext) getSirsiLocations() ([]locationRec, error) {
 	url := fmt.Sprintf("/policy/location/simpleQuery?key=*&includeFields=key,policyNumber,description,shadowed")
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
-		return locs, fmt.Errorf(sirsiErr.string())
+		return locs, fmt.Errorf("%s", sirsiErr.string())
 	}
 
 	var locResp []sirsiLocationRec

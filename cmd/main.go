@@ -37,6 +37,22 @@ func main() {
 	router.GET("/version", svc.getVersion)
 	router.GET("/healthcheck", svc.healthCheck)
 
+	// checkouts management
+	router.POST("/checkouts/renew", svc.sirsiAuthMiddleware, svc.renewCheckouts)
+
+	// course reserves management
+	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.validateCourseReserves)
+	// TODO move search and other reserves functionality from avail service here
+
+	// dibs management
+	router.PUT("/dibs/indibs/:barcode", svc.sirsiAuthMiddleware, svc.setBarcodeInDiBS)
+	router.PUT("/dibs/nodibs/:barcode", svc.sirsiAuthMiddleware, svc.setBarcodeNotInDiBS)
+	router.POST("/dibs/checkin", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.checkinDiBS)
+	router.POST("/dibs/checkout", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.checkoutDiBS)
+
+	// metadata rights update
+	router.POST("/metadata/update_rights", svc.sirsiAuthMiddleware, svc.updateMetadataRights)
+
 	// account management
 	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)
 	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword)
@@ -52,6 +68,12 @@ func main() {
 	router.GET("/users/:compute_id/checkouts", svc.sirsiAuthMiddleware, svc.locationsMiddleware, svc.getUserCheckouts)
 	router.GET("/users/:compute_id/checkouts.csv", svc.sirsiAuthMiddleware, svc.locationsMiddleware, svc.getUserCheckoutsCSV)
 	router.GET("/users/:compute_id/holds", svc.sirsiAuthMiddleware, svc.getUserHolds)
+
+	// hold and scan requests; all but fill_hold is done by a virgo user and requires a virgo jwt
+	router.POST("/requests/hold", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.createHold)
+	router.DELETE("/requests/hold/:id", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.deleteHold)
+	router.POST("/requests/scan", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.createScan)
+	router.POST("/requests/fill_hold/:barcode", svc.sirsiAuthMiddleware, svc.fillHold)
 
 	portStr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Start service v%s on port %s", version, portStr)
