@@ -1,30 +1,38 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"regexp"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
+type marcSubField struct {
+	Code string `json:"code"`
+	Data string `json:"data"`
+}
+
+type marcField struct {
+	Tag       string         `json:"tag"`
+	Subfields []marcSubField `json:"subfields"`
+	Inds      string         `json:"inds,omitempty"`
+}
 type sisriBibRecord struct {
-	Key    string `json:"key"`
-	Fields struct {
+	Resource string `json:"resource"`
+	Key      string `json:"key"`
+	Fields   struct {
 		Bib struct {
-			Standard string `json:"standard"`
-			Type     string `json:"type"`
-			Leader   string `json:"leader"`
-			Fields   []struct {
-				Tag       string `json:"tag"`
-				Subfields []struct {
-					Code string `json:"code"`
-					Data string `json:"data"`
-				} `json:"subfields"`
-				Inds string `json:"inds,omitempty"`
-			} `json:"fields"`
+			Standard string      `json:"standard"`
+			Type     string      `json:"type"`
+			Leader   string      `json:"leader"`
+			Fields   []marcField `json:"fields"`
 		} `json:"bib"`
 	} `json:"fields"`
 }
@@ -79,7 +87,70 @@ func (svc *serviceContext) updateMetadataRights(c *gin.Context) {
 		return
 	}
 
-	// TODO update
+	marcRights := marcField{Tag: "856", Inds: "41"}
+	marcRights.Subfields = append(marcRights.Subfields, marcSubField{Code: "r", Data: updateReq.RightsURI})
+	marcRights.Subfields = append(marcRights.Subfields, marcSubField{Code: "t", Data: updateReq.RightsName})
+	marcRights.Subfields = append(marcRights.Subfields, marcSubField{Code: "u", Data: updateReq.ResourceURI})
+	marcRights.Subfields = append(marcRights.Subfields, marcSubField{Code: "e", Data: "(dpeaa) UVA TrackSys"})
+
+	// see if 856 field from tracksys is already present
+	existFieldIdx := 0
+	newIdx := -1
+	for idx, bf := range bibRec.Fields.Bib.Fields {
+		if newIdx == -1 {
+			tagNum, _ := strconv.Atoi(bf.Tag)
+			if tagNum >= 856 {
+				newIdx = idx
+			}
+		}
+		if bf.Tag == "856" {
+			for _, sf := range bf.Subfields {
+				if sf.Code == "e" {
+					match, _ := regexp.MatchString(`uva tracksys`, strings.ToLower(sf.Data))
+					if match {
+						existFieldIdx = idx
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if existFieldIdx > 0 {
+		log.Printf("INFO: data already has tracksys user right data in field %d", existFieldIdx)
+		bibRec.Fields.Bib.Fields[existFieldIdx] = marcRights
+	} else {
+		if newIdx > -1 {
+			log.Printf("INFO: insert rights at index %d", newIdx)
+			bibRec.Fields.Bib.Fields = slices.Insert(bibRec.Fields.Bib.Fields, newIdx, marcRights)
+		} else {
+			log.Printf("INFO: append rights after last field")
+			bibRec.Fields.Bib.Fields = append(bibRec.Fields.Bib.Fields, marcRights)
+		}
+	}
+
+	// cleanup leader
+	// https://www.oclc.org/bibformats/en/fixedfield/elvl.html
+	leader17 := bibRec.Fields.Bib.Leader[17]
+	matched, _ := regexp.MatchString(`[A-Z]`, string(leader17))
+	if matched {
+		leader := bibRec.Fields.Bib.Leader
+		bibRec.Fields.Bib.Leader = leader[:17] + " " + leader[18:]
+	}
+
+	payloadBytes, _ := json.Marshal(bibRec)
+	url = fmt.Sprintf("%s/catalog/bib/key/%s", svc.SirsiConfig.WebServicesURL, cleanKey)
+	req, _ = http.NewRequest("PUT", url, bytes.NewBuffer(payloadBytes))
+	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
+	req.Header.Set("SD-Originating-App-Id", "TrackSys")
+	req.Header.Set("x-sirs-clientID", "TRACKSYS")
+	rawPutResp, rawPutErr := svc.HTTPClient.Do(req)
+	_, putErr := handleAPIResponse(url, rawPutResp, rawPutErr)
+	if putErr != nil {
+		log.Printf("ERROR: update rights failed: %s", putErr.string())
+		c.String(putErr.StatusCode, putErr.Message)
+		return
+	}
 
 	c.JSON(http.StatusOK, bibRec)
 }
