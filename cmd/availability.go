@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type availabilityResponse struct {
+type availabilityListResponse struct {
 	AvailabilityList struct {
 		Libraries []libraryRec  `json:"libraries"`
 		Locations []locationRec `json:"locations"`
@@ -76,6 +76,55 @@ type sirsiBibResponse struct {
 	} `json:"fields"`
 }
 
+type availItemField struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Visibile bool   `json:"visible"`
+	Type     string `json:"text"`
+}
+
+type availItem struct {
+	Barcode           string           `json:"barcode"`
+	OnShelf           bool             `json:"on_shelf"`
+	Unavailable       bool             `json:"unavailable"`
+	NonCirculating    bool             `json:"non_circulating"`
+	IsVideo           bool             `json:"is_video"`
+	Notice            string           `json:"notice"`
+	Library           string           `json:"library"`
+	LibraryID         string           `json:"library_id"`
+	CurrentLocation   string           `json:"current_location"`
+	CurrentLocationID string           `json:"current_location_id"`
+	HomeLocationID    string           `json:"home_location_id"`
+	CallNumber        string           `json:"call_number"`
+	Volume            string           `json:"volume"`
+	Fields            []availItemField `json:"fields"`
+}
+
+type availItemOptions struct {
+	Barcode    string `json:"barcode"`
+	Label      string `json:"label"`
+	Library    string `json:"library"`
+	Location   string `json:"location"`
+	LocationID string `json:"location_id"`
+	IsVideo    bool   `json:"is_video"`
+	Notice     string `json:"notice"`
+}
+
+type availRequestOption struct {
+	Type           string             `json:"type"`
+	SignInRequired bool               `json:"sign_in_required"`
+	ButtonLabel    string             `json:"button_label"`
+	Description    string             `json:"description"`
+	ItemOptions    []availItemOptions `json:"item_options"`
+}
+
+type availabilityRespoonse struct {
+	TitleID        string               `json:"title_id"`
+	Columns        []string             `json:"columns"`
+	Items          []availItem          `json:"items"`
+	RequestOptions []availRequestOption `json:"request_options"`
+}
+
 // u2419229
 func (svc *serviceContext) getAvailability(c *gin.Context) {
 	catKey := c.Param("cat_key")
@@ -104,12 +153,18 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, bibResp)
+	log.Printf("PARSED RESP: %+v", bibResp)
+	availResp := availabilityRespoonse{
+		TitleID: cleanKey,
+		Columns: []string{"Library", "Current Location", "Call Number", "Barcode"},
+	}
+
+	c.JSON(http.StatusOK, availResp)
 }
 
 func (svc *serviceContext) getAvailabilityList(c *gin.Context) {
 	log.Printf("INFO: get availability list")
-	resp := availabilityResponse{}
+	resp := availabilityListResponse{}
 	resp.AvailabilityList.Locations = svc.Locations.Records
 	resp.AvailabilityList.Libraries = svc.Libraries.Records
 	c.JSON(http.StatusOK, resp)
