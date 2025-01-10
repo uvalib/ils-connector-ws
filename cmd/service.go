@@ -240,6 +240,7 @@ func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *reque
 		url += fmt.Sprintf("?auth=%s", jwt)
 	}
 	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)

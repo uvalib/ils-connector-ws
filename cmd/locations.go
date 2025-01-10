@@ -75,9 +75,9 @@ func (svc *serviceContext) getSirsiLocations() ([]locationRec, error) {
 		loc := locationRec{ID: sl.Fields.PolicyNumber}
 		loc.Key = sl.Key
 		loc.Description = sl.Fields.Description
-		loc.OnShelf = svc.Locations.isOnShelfLocation(sl.Key)
-		loc.Circulating = !svc.Locations.isNonCirculatingLocation(sl.Key)
-		loc.Online = svc.Locations.isOnlineLocation(sl.Key)
+		loc.OnShelf = svc.Locations.isOnShelf(sl.Key)
+		loc.Circulating = !svc.Locations.isNonCirculating(sl.Key)
+		loc.Online = svc.Locations.isOnline(sl.Key)
 		loc.Shadowed = sl.Fields.Shadowed
 
 		locs = append(locs, loc)
@@ -86,7 +86,7 @@ func (svc *serviceContext) getSirsiLocations() ([]locationRec, error) {
 	return locs, nil
 }
 
-func (lc *locationContext) findLocation(key string) *locationRec {
+func (lc *locationContext) find(key string) *locationRec {
 	var match *locationRec
 	for _, loc := range lc.Records {
 		if loc.Key == key {
@@ -97,7 +97,7 @@ func (lc *locationContext) findLocation(key string) *locationRec {
 	return match
 }
 
-func (lc *locationContext) isOnShelfLocation(key string) bool {
+func (lc *locationContext) isOnShelf(key string) bool {
 	match := false
 	for _, loc := range lc.OnShelf {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
@@ -107,7 +107,7 @@ func (lc *locationContext) isOnShelfLocation(key string) bool {
 	return match
 }
 
-func (lc *locationContext) isNonCirculatingLocation(key string) bool {
+func (lc *locationContext) isNonCirculating(key string) bool {
 	match := false
 	for _, loc := range lc.NonCirculating {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
@@ -117,9 +117,9 @@ func (lc *locationContext) isNonCirculatingLocation(key string) bool {
 	return match
 }
 
-func (lc *locationContext) isOnlineLocation(key string) bool {
+func (lc *locationContext) isOnline(key string) bool {
 	online := false
-	for _, loc := range lc.onlineLocations() {
+	for _, loc := range []string{"INTERNET", "NOTOREPDA"} {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
 			online = true
 			break
@@ -128,31 +128,22 @@ func (lc *locationContext) isOnlineLocation(key string) bool {
 	return online
 }
 
-func (lc *locationContext) isUnavailableLocation(key string) bool {
+func (lc *locationContext) isIvyStacks(key string) bool {
+	return strings.TrimSpace(strings.ToUpper(key)) == "SC-IVY"
+}
+
+func (lc *locationContext) isMediumRare(key string) bool {
+	return strings.TrimSpace(strings.ToUpper(key)) == "LOCKEDSTKS"
+}
+
+func (lc *locationContext) isUnavailable(key string) bool {
 	online := false
-	for _, loc := range lc.unavailableLocations() {
+	unavail := []string{"LOST", "UNKNOWN", "MISSING", "DISCARD", "WITHDRAWN", "BARRED", "BURSARED", "ORD-CANCLD", "HEREDOC"}
+	for _, loc := range unavail {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
 			online = true
 			break
 		}
 	}
 	return online
-}
-
-func (lc *locationContext) onlineLocations() []string {
-	return []string{"INTERNET", "NOTOREPDA"}
-}
-
-func (lc *locationContext) unavailableLocations() []string {
-	return []string{
-		"LOST",
-		"UNKNOWN",
-		"MISSING",
-		"DISCARD",
-		"WITHDRAWN",
-		"BARRED",
-		"BURSARED",
-		"ORD-CANCLD",
-		"HEREDOC",
-	}
 }

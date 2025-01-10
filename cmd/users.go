@@ -559,7 +559,7 @@ func (svc *serviceContext) getSirsiUserCheckouts(computeID string) ([]checkoutDe
 		coItem.Barcode = cr.Fields.Item.Fields.Barcode
 		coItem.CallNumber = coCall.Fields.DispCallNumber
 		coItem.Library = cr.Fields.Library.Fields.Description
-		loc := svc.Locations.findLocation(cr.Fields.Item.Fields.CurrentLocation.Key)
+		loc := svc.Locations.find(cr.Fields.Item.Fields.CurrentLocation.Key)
 		if loc != nil {
 			coItem.CurrentLocation = loc.Description
 		}

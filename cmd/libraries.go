@@ -66,9 +66,20 @@ func (svc *serviceContext) refreshLibraries() {
 			Description: sl.Fields.Description,
 		}
 		lib.OnShelf = svc.Libraries.isOnShelfLibrary(sl.Key)
-		lib.Circulating = !svc.Locations.isNonCirculatingLocation(sl.Key)
+		lib.Circulating = !svc.Locations.isNonCirculating(sl.Key)
 		svc.Libraries.Records = append(svc.Libraries.Records, lib)
 	}
+}
+
+func (lc *libraryContext) find(key string) *libraryRec {
+	var match *libraryRec
+	for _, lib := range lc.Records {
+		if strings.TrimSpace(strings.ToUpper(lib.Key)) == strings.TrimSpace(strings.ToUpper(key)) {
+			match = &lib
+			break
+		}
+	}
+	return match
 }
 
 func (lc *libraryContext) isNonCirculatingLibrary(key string) bool {
