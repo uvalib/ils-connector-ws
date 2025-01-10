@@ -125,7 +125,17 @@ type boundWithRec struct {
 	Author     string `json:"author"`
 }
 
-type availabilityRespoonse struct {
+type holdableItem struct {
+	Barcode    string `json:"barcode"`
+	Label      string `json:"label"`
+	Library    string `json:"library"`
+	Location   string `json:"location"`
+	LocationID string `json:"location_id"`
+	IsVideo    bool   `json:"is_video"`
+	Notice     string `json:"notice"`
+}
+
+type availabilityResponse struct {
 	TitleID        string               `json:"title_id"`
 	Columns        []string             `json:"columns"`
 	Items          []availItem          `json:"items"`
@@ -161,12 +171,27 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		return
 	}
 
-	availResp := availabilityRespoonse{
+	availResp := availabilityResponse{
 		TitleID: bibResp.Key,
 		Columns: []string{"Library", "Current Location", "Call Number", "Barcode"},
 	}
 
-	log.Printf("INFO: process items for %s", catKey)
+	availResp.Items = svc.processAvailabilityItems(bibResp)
+	availResp.BoundWith = svc.processBoundWithItems(bibResp)
+	availResp.RequestOptions = svc.generateRequestOptions(availResp.Items)
+
+	out := struct {
+		Availability availabilityResponse `json:"availability"`
+	}{
+		Availability: availResp,
+	}
+
+	c.JSON(http.StatusOK, out)
+}
+
+func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []availItem {
+	log.Printf("INFO: process items for %s", bibResp.Key)
+	out := make([]availItem, 0)
 	for _, callRec := range bibResp.Fields.CallList {
 		for _, itemRec := range callRec.Fields.ItemList {
 			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
@@ -190,28 +215,37 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 			fields = append(fields, availItemField{Name: "Barcode", Value: item.Barcode, Visibile: true, Type: "text"})
 			item.Fields = fields
 
-			availResp.Items = append(availResp.Items, item)
+			out = append(out, item)
 		}
 	}
+	return out
+}
 
+func (svc *serviceContext) processBoundWithItems(bibResp sirsiBibResponse) []boundWithRec {
+	// sample: sources/uva_library/items/u3315175
+	log.Printf("INFO: process bound with for %s", bibResp.Key)
+	out := make([]boundWithRec, 0)
 	if len(bibResp.Fields.BoundWithList) > 0 {
-		log.Printf("INFO: process bound with for %s", catKey)
-		// sample: sources/uva_library/items/u3315175
 		bwParent := extractBoundWithRec(bibResp.Fields.BoundWithList[0].Fields.Parent)
 		bwParent.IsParent = true
-		availResp.BoundWith = append(availResp.BoundWith, bwParent)
+		out = append(out, bwParent)
 		for _, child := range bibResp.Fields.BoundWithList[0].Fields.ChildList {
-			availResp.BoundWith = append(availResp.BoundWith, extractBoundWithRec(child))
+			out = append(out, extractBoundWithRec(child))
 		}
 	}
+	return out
+}
 
-	out := struct {
-		Availability availabilityRespoonse `json:"availability"`
-	}{
-		Availability: availResp,
+func (svc *serviceContext) generateRequestOptions(items []availItem) []availRequestOption {
+	out := make([]availRequestOption, 0)
+	holdable := make([]holdableItem, 0)
+
+	// first add volume options
+	for _, item := range items {
+		log.Printf("check %+v", item)
 	}
-
-	c.JSON(http.StatusOK, out)
+	log.Printf("%+v", holdable)
+	return out
 }
 
 func extractBoundWithRec(sirsiRec sirsiBoundWithRec) boundWithRec {
