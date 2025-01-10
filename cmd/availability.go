@@ -18,6 +18,15 @@ type availabilityListResponse struct {
 	} `json:"availability_list"`
 }
 
+type sirsiBoundWithRec struct {
+	Fields struct {
+		Author     string   `json:"author"`
+		Bib        sirsiKey `json:"bib"`
+		CallNumber string   `json:"callNumber"`
+		Title      string   `json:"title"`
+	} `json:"fields"`
+}
+
 type sirsiBibResponse struct {
 	Key    string `json:"key"`
 	Fields struct {
@@ -59,22 +68,8 @@ type sirsiBibResponse struct {
 		} `json:"callList"`
 		BoundWithList []struct {
 			Fields struct {
-				ChildList []struct {
-					Fields struct {
-						Author     string   `json:"author"`
-						Bib        sirsiKey `json:"bib"`
-						CallNumber string   `json:"callNumber"`
-						Title      string   `json:"title"`
-					} `json:"fields"`
-				} `json:"childList"`
-				Parent struct {
-					Fields struct {
-						Author     string   `json:"author"`
-						Bib        sirsiKey `json:"bib"`
-						CallNumber string   `json:"callNumber"`
-						Title      string   `json:"title"`
-					} `json:"fields"`
-				} `json:"parent"`
+				ChildList []sirsiBoundWithRec `json:"childList"`
+				Parent    sirsiBoundWithRec   `json:"parent"`
 			} `json:"fields"`
 		} `json:"boundWithList"`
 	} `json:"fields"`
@@ -122,11 +117,20 @@ type availRequestOption struct {
 	ItemOptions    []availItemOptions `json:"item_options"`
 }
 
+type boundWithRec struct {
+	IsParent   bool   `json:"is_parent"`
+	TitleID    string `json:"title_id"`
+	CallNumber string `json:"call_number"`
+	Title      string `json:"title"`
+	Author     string `json:"author"`
+}
+
 type availabilityRespoonse struct {
 	TitleID        string               `json:"title_id"`
 	Columns        []string             `json:"columns"`
 	Items          []availItem          `json:"items"`
 	RequestOptions []availRequestOption `json:"request_options"`
+	BoundWith      []boundWithRec       `json:"bound_with"`
 }
 
 // u2419229
@@ -162,6 +166,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		Columns: []string{"Library", "Current Location", "Call Number", "Barcode"},
 	}
 
+	log.Printf("INFO: process items for %s", catKey)
 	for _, callRec := range bibResp.Fields.CallList {
 		for _, itemRec := range callRec.Fields.ItemList {
 			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
@@ -189,6 +194,17 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		}
 	}
 
+	if len(bibResp.Fields.BoundWithList) > 0 {
+		log.Printf("INFO: process bound with for %s", catKey)
+		// sample: sources/uva_library/items/u3315175
+		bwParent := extractBoundWithRec(bibResp.Fields.BoundWithList[0].Fields.Parent)
+		bwParent.IsParent = true
+		availResp.BoundWith = append(availResp.BoundWith, bwParent)
+		for _, child := range bibResp.Fields.BoundWithList[0].Fields.ChildList {
+			availResp.BoundWith = append(availResp.BoundWith, extractBoundWithRec(child))
+		}
+	}
+
 	out := struct {
 		Availability availabilityRespoonse `json:"availability"`
 	}{
@@ -196,6 +212,14 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, out)
+}
+
+func extractBoundWithRec(sirsiRec sirsiBoundWithRec) boundWithRec {
+	return boundWithRec{Author: sirsiRec.Fields.Author,
+		Title:      sirsiRec.Fields.Title,
+		CallNumber: sirsiRec.Fields.CallNumber,
+		TitleID:    sirsiRec.Fields.Bib.Key,
+	}
 }
 
 func isVideo(itemTypeID string) bool {
