@@ -136,6 +136,10 @@ func (lc *locationContext) isMediumRare(key string) bool {
 	return strings.TrimSpace(strings.ToUpper(key)) == "LOCKEDSTKS"
 }
 
+func (lc *locationContext) mediumRareMessage() string {
+	return "This item does not circulate outside of library spaces. When you request this item from Ivy, it will be delivered to the Small Special Collections Library for you to use in the reading room only."
+}
+
 func (lc *locationContext) isUnavailable(key string) bool {
 	online := false
 	unavail := []string{"LOST", "UNKNOWN", "MISSING", "DISCARD", "WITHDRAWN", "BARRED", "BURSARED", "ORD-CANCLD", "HEREDOC"}

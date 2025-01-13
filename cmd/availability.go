@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -27,10 +28,25 @@ type sirsiBoundWithRec struct {
 	} `json:"fields"`
 }
 
+type marcTag struct {
+	Tag       string `json:"tag"`
+	Subfields []struct {
+		Code string `json:"code"`
+		Data string `json:"data"`
+	} `json:"subfields"`
+	Inds string `json:"inds,omitempty"`
+}
+
+type sirsiBibData struct {
+	Leader string    `json:"leader"`
+	Fields []marcTag `json:"fields"`
+}
+
 type sirsiBibResponse struct {
 	Key    string `json:"key"`
 	Fields struct {
-		CallList []struct {
+		MarcRecord sirsiBibData `json:"bib"`
+		CallList   []struct {
 			Key    string `json:"key"`
 			Fields struct {
 				Bib            sirsiKey `json:"bib"`
@@ -79,7 +95,7 @@ type availItemField struct {
 	Name     string `json:"name"`
 	Value    string `json:"value"`
 	Visibile bool   `json:"visible"`
-	Type     string `json:"text"`
+	Type     string `json:"type"`
 }
 
 type availItem struct {
@@ -99,22 +115,20 @@ type availItem struct {
 	NonCirculating    bool             `json:"non_circulating"`
 }
 
-type availItemOptions struct {
-	Barcode    string `json:"barcode"`
-	Label      string `json:"label"`
-	Library    string `json:"library"`
-	Location   string `json:"location"`
-	LocationID string `json:"location_id"`
-	IsVideo    bool   `json:"is_video"`
-	Notice     string `json:"notice"`
+func (ai *availItem) toHoldableItem() holdableItem {
+	return holdableItem{Barcode: ai.Barcode,
+		Label: ai.CallNumber, Library: ai.Library,
+		Location: ai.CurrentLocation, LocationID: ai.CurrentLocationID,
+		IsVideo: ai.IsVideo, Notice: ai.Notice}
 }
 
 type availRequestOption struct {
-	Type           string             `json:"type"`
-	SignInRequired bool               `json:"sign_in_required"`
-	ButtonLabel    string             `json:"button_label"`
-	Description    string             `json:"description"`
-	ItemOptions    []availItemOptions `json:"item_options"`
+	Type           string         `json:"type"`
+	SignInRequired bool           `json:"sign_in_required"`
+	ButtonLabel    string         `json:"button_label"`
+	Description    string         `json:"description"`
+	ItemOptions    []holdableItem `json:"item_options"`
+	CreateURL      string         `json:"create_url"`
 }
 
 type boundWithRec struct {
@@ -143,13 +157,23 @@ type availabilityResponse struct {
 	BoundWith      []boundWithRec       `json:"bound_with"`
 }
 
+type availToOrderItem struct {
+	CatalogKey  string `json:"catalog_key"`
+	ISBN        string `json:"pda_isbn"`
+	Barcode     string `json:"barcode"`
+	Title       string `json:"titke"`
+	FundCode    string `json:"fund_code"`
+	LoanType    string `json:"load_type"`
+	HoldLibrary string `json:"holdLibrary"`
+}
+
 // u2419229
 func (svc *serviceContext) getAvailability(c *gin.Context) {
 	catKey := c.Param("cat_key")
 	re := regexp.MustCompile("^u")
 	cleanKey := re.ReplaceAllString(catKey, "")
 	log.Printf("INFO: get availability for %s", catKey)
-	fields := "boundWithList{*},callList{*,library{description},itemList{*,currentLocation{key,description,shadowed}}}"
+	fields := "boundWithList{*},bib,callList{*,library{description},itemList{*,currentLocation{key,description,shadowed}}}"
 	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
@@ -178,7 +202,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 
 	availResp.Items = svc.processAvailabilityItems(bibResp)
 	availResp.BoundWith = svc.processBoundWithItems(bibResp)
-	availResp.RequestOptions = svc.generateRequestOptions(availResp.Items)
+	availResp.RequestOptions = svc.generateRequestOptions(c.GetString("jwt"), availResp.TitleID, availResp.Items, bibResp.Fields.MarcRecord)
 
 	out := struct {
 		Availability availabilityResponse `json:"availability"`
@@ -193,6 +217,10 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 	log.Printf("INFO: process items for %s", bibResp.Key)
 	out := make([]availItem, 0)
 	for _, callRec := range bibResp.Fields.CallList {
+		if callRec.Fields.Shadowed {
+			// dont process shadowed items
+			continue
+		}
 		for _, itemRec := range callRec.Fields.ItemList {
 			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
 			item.Barcode = itemRec.Fields.Barcode
@@ -206,7 +234,7 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 			item.IsVideo = isVideo(itemRec.Fields.ItemType.Key)
 			item.OnShelf = svc.isOnShelf(item)
 			item.Unavailable = svc.Locations.isUnavailable(item.CurrentLocationID)
-			item.NonCirculating = false
+			item.NonCirculating = svc.isNonCirculating(item)
 
 			var fields []availItemField
 			fields = append(fields, availItemField{Name: "Library", Value: item.Library, Visibile: true, Type: "text"})
@@ -236,15 +264,167 @@ func (svc *serviceContext) processBoundWithItems(bibResp sirsiBibResponse) []bou
 	return out
 }
 
-func (svc *serviceContext) generateRequestOptions(items []availItem) []availRequestOption {
+func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string, items []availItem, marc sirsiBibData) []availRequestOption {
 	out := make([]availRequestOption, 0)
-	holdable := make([]holdableItem, 0)
+	holdableItems := make([]holdableItem, 0)
+	medRareHoldable := make([]holdableItem, 0)
+	var atoItem availItem
+	var firstHoldable holdableItem
 
-	// first add volume options
 	for _, item := range items {
-		log.Printf("check %+v", item)
+		// track available to order items for later use
+		if item.CurrentLocation == "Available to Order" && atoItem.CurrentLocationID == "" {
+			atoItem = item
+		}
+
+		// unavailable or non circulating items are not holdable. This assumes (per original code)
+		// that al users can request onshelf items
+		if item.Unavailable || item.NonCirculating {
+			continue
+		}
+
+		// track all medium rare items
+		if svc.Locations.isMediumRare(item.HomeLocationID) {
+			mrItem := item.toHoldableItem()
+			if mrItem.Notice == svc.Locations.mediumRareMessage() {
+				mrItem.Label += " (Ivy limited circulation)"
+			}
+			medRareHoldable = append(medRareHoldable, mrItem)
+		}
+
+		// track the first holdable item that is not medium rare; may be used below
+		if svc.Locations.isMediumRare(item.HomeLocationID) == false && firstHoldable.Barcode == "" {
+			firstHoldable = item.toHoldableItem()
+		}
+
+		if item.Volume != "" {
+			holdableItems = append(holdableItems, item.toHoldableItem())
+		}
 	}
-	log.Printf("%+v", holdable)
+
+	//  if no Volume options are present, add the first non-medium rare holdable item
+	if len(holdableItems) == 0 && firstHoldable.Barcode != "" {
+		log.Printf("INFO: no volume ops for %s, adding first holdable %+v", titleID, firstHoldable)
+		holdableItems = append(holdableItems, firstHoldable)
+	}
+
+	// last, add all medium rare items that do not already exist
+	for _, mrItem := range medRareHoldable {
+		exist := false
+		for _, hi := range holdableItems {
+			if hi.Barcode == mrItem.Barcode {
+				exist = true
+				break
+			}
+		}
+		if exist == false {
+			holdableItems = append(holdableItems, mrItem)
+		}
+	}
+
+	if len(holdableItems) > 0 {
+		log.Printf("INFO: add hold options for %s", titleID)
+		out = append(out, availRequestOption{Type: "hold", SignInRequired: true,
+			ButtonLabel: "Request item",
+			Description: "Request an unavailable item or request delivery.",
+			ItemOptions: holdableItems,
+		})
+	}
+
+	nonVideo := make([]holdableItem, 0)
+	videos := make([]holdableItem, 0)
+	for _, item := range holdableItems {
+		if item.IsVideo == false {
+			nonVideo = append(nonVideo, item)
+		} else {
+			videos = append(videos, item)
+		}
+	}
+	if len(nonVideo) > 0 {
+		log.Printf("INFO: add scan options for %s", titleID)
+		out = append(out, availRequestOption{Type: "scan", SignInRequired: true,
+			ButtonLabel: "Request a scan",
+			Description: "Select a portion of this item to be scanned.",
+			ItemOptions: nonVideo,
+		})
+	}
+
+	if len(videos) > 0 {
+		log.Printf("INFO: add video reserve options for %s", titleID)
+		out = append(out, availRequestOption{Type: "videoReserve", SignInRequired: true,
+			ButtonLabel: "Video reserve request",
+			Description: "Request a video reserve for streaming.",
+			ItemOptions: videos,
+		})
+	}
+
+	if atoItem.CurrentLocationID != "" {
+		log.Printf("INFO: add available to order option")
+		url := fmt.Sprintf("%s/check/%s", svc.PDAURL, titleID)
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("User-Agent", "Golang_ILS_Connector")
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", userJWT))
+		rawResp, rawErr := svc.HTTPClient.Do(req)
+		_, err := handleAPIResponse(url, rawResp, rawErr)
+		if err != nil {
+			if err.StatusCode == 404 {
+				out = append(out, availRequestOption{Type: "pda", SignInRequired: true,
+					ButtonLabel: "Order this Item",
+					Description: `<div class="pda-about">Learn more about <a href="https://library.virginia.edu/about-available-to-order-items" aria-label="Available to Order" style="text-decoration: underline;" target="_blank" title="Available to Order (Opens in a new window.)" class="piwik_link">Available to Order</a> items.</div>`,
+					ItemOptions: make([]holdableItem, 0),
+					CreateURL:   svc.generatePDACreateURL(titleID, atoItem.Barcode, marc),
+				})
+			} else {
+				log.Printf("ERROR: pda check failed %d - %s", err.StatusCode, err.Message)
+			}
+		} else {
+			// success here means the item has been orderd, but sirsi not yet updated
+			out = append(out, availRequestOption{Type: "pda", SignInRequired: true,
+				Description: `<div class="pda-about">This item is now on order. Learn more about <a href="https://library.virginia.edu/about-available-to-order-items" aria-label="Available to Order" style="text-decoration: underline;" target="_blank" title="Available to Order (Opens in a new window.)" class="piwik_link">Available to Order</a> items.</div>`,
+				ItemOptions: make([]holdableItem, 0),
+			})
+		}
+	}
+
+	return out
+}
+
+func (svc *serviceContext) generatePDACreateURL(titleID, barcode string, marc sirsiBibData) string {
+	pdaURL := fmt.Sprintf("%s/orders?barcode=%s&catalog_key=%s", svc.PDAURL, barcode, titleID)
+	pdaURL += fmt.Sprintf("&fund_code=%s", getMarcValue(marc, "985", "first"))
+	padHoldLib := getMarcValue(marc, "949", "h")
+	pdaURL += fmt.Sprintf("&hold_library=%s", svc.Libraries.lookupPDALibrary(padHoldLib))
+	pdaURL += fmt.Sprintf("&isbn=%s", getMarcValue(marc, "911", "a"))
+	pdaURL += fmt.Sprintf("&loan_type=%s", getMarcValue(marc, "985", "last"))
+	title := getMarcValue(marc, "245", "all")
+	pdaURL += fmt.Sprintf("&title=%s", url.QueryEscape(title))
+	return pdaURL
+}
+
+func getMarcValue(marc sirsiBibData, tag, code string) string {
+	out := ""
+	for _, mf := range marc.Fields {
+		if mf.Tag == tag {
+			if code == "first" {
+				out = mf.Subfields[0].Data
+			} else if code == "last" {
+				out = mf.Subfields[len(mf.Subfields)-1].Data
+			} else if code == "all" {
+				var vals []string
+				for _, sf := range mf.Subfields {
+					vals = append(vals, sf.Data)
+				}
+				out = strings.Join(vals, " ")
+			} else {
+				for _, sf := range mf.Subfields {
+					if sf.Code == code {
+						out = sf.Data
+					}
+				}
+			}
+			break
+		}
+	}
 	return out
 }
 
@@ -272,7 +452,7 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 		return `Part or all of this collection is housed in <a href="https://library.virginia.edu/locations/ivy" target="_blank">Ivy Stacks</a> and requires 72 hours notice to retrieve.`
 	}
 	if svc.Locations.isMediumRare((item.HomeLocationID)) {
-		return "This item does not circulate outside of library spaces. When you request this item from Ivy, it will be delivered to the Small Special Collections Library for you to use in the reading room only."
+		return svc.Locations.mediumRareMessage()
 	}
 
 	// https://ilstest.lib.virginia.edu/uhtbin/course_reserves?item_id=35007007757960 this has a reserve
@@ -307,6 +487,12 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 	}
 
 	return ""
+}
+
+func (svc *serviceContext) isNonCirculating(item availItem) bool {
+	lib := svc.Libraries.find(item.LibraryID)
+	loc := svc.Locations.find(item.CurrentLocationID)
+	return lib.Circulating == false || loc.Circulating == false
 }
 
 func (svc *serviceContext) isOnShelf(item availItem) bool {

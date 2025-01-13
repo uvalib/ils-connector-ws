@@ -82,6 +82,22 @@ func (lc *libraryContext) find(key string) *libraryRec {
 	return match
 }
 
+func (lc *libraryContext) lookupPDALibrary(pdaLib string) string {
+	pdaMap := map[string]string{
+		"SH-PPDA": "SHANNON",
+		"AL-PPDA": "ALD",
+		"AS-PPDA": "ASTRO",
+		"CH-PPDA": "CHEM",
+		"CL-PPDA": "CLEM",
+		"FA-PPDA": "FINE ARTS",
+		"MA-PPDA": "MATH",
+		"MU-PPDA": "MUSIC",
+		"PH-PPDA": "PHYS",
+		"SE-PPDA": "SCIENG",
+	}
+	return pdaMap[pdaLib]
+}
+
 func (lc *libraryContext) isNonCirculatingLibrary(key string) bool {
 	match := false
 	for _, loc := range lc.NonCirculating {
