@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -89,6 +90,11 @@ type sirsiBibResponse struct {
 			} `json:"fields"`
 		} `json:"boundWithList"`
 	} `json:"fields"`
+}
+
+type copyNumRec struct {
+	Barcode    string `json:"barcode"`
+	CopyNumber string `json:"copyNumber"`
 }
 
 type availItemField struct {
@@ -216,6 +222,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []availItem {
 	log.Printf("INFO: process items for %s", bibResp.Key)
 	out := make([]availItem, 0)
+	specialCollectionsCount := 0
 	for _, callRec := range bibResp.Fields.CallList {
 		if callRec.Fields.Shadowed {
 			// dont process shadowed items
@@ -227,6 +234,9 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 			item.Volume = callRec.Fields.Volumetric
 			item.Library = callRec.Fields.Library.Fields.Description
 			item.LibraryID = callRec.Fields.Library.Key
+			if item.LibraryID == "SPEC-COLL" {
+				specialCollectionsCount++
+			}
 			item.CurrentLocationID = itemRec.Fields.CurrentLocation.Key
 			item.CurrentLocation = itemRec.Fields.CurrentLocation.Fields.Description
 			item.HomeLocationID = itemRec.Fields.HomeLocation.Key
@@ -246,7 +256,53 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 			out = append(out, item)
 		}
 	}
+
+	if len(out) > 1 && specialCollectionsCount > 0 {
+		log.Printf("INFO: update copy numbers for special collections items")
+		cnRecs, err := svc.getCopyNumbers(bibResp.Key)
+		if err != nil {
+			log.Printf("ERROR: %s", err.Error())
+		}
+		for _, cnRec := range cnRecs {
+			for idx, item := range out {
+				if item.Barcode == cnRec.Barcode {
+					// note: cant just update item since out is an array of structs (not pointers to structs)
+					// so you would just be updating the item from the loop, not the array itself.
+					// this syntax does what is needed:
+					out[idx].CallNumber += fmt.Sprintf(" (copy %s)", cnRec.CopyNumber)
+					break
+				}
+			}
+		}
+	}
 	return out
+}
+
+func (svc *serviceContext) getCopyNumbers(titleID string) ([]copyNumRec, error) {
+	crURL := fmt.Sprintf("%s/getCopyNums?key=%s", svc.SirsiConfig.ScriptURL, titleID)
+	rawResp, cpyErr := svc.serviceGet(crURL, "")
+	if cpyErr != nil {
+		return nil, fmt.Errorf("unable to get copy number data: %s", cpyErr.Message)
+	}
+	var cnRecs []copyNumRec
+	parseErr := json.Unmarshal(rawResp, &cnRecs)
+	if parseErr != nil {
+		return nil, fmt.Errorf("unable to parse copy number response: %s", parseErr.Error())
+	}
+
+	// check if any copy numbers are > 1. If not, nothing to do and return empty list
+	valid := false
+	for _, cn := range cnRecs {
+		cnt, _ := strconv.Atoi(cn.CopyNumber)
+		if cnt > 1 {
+			valid = true
+			break
+		}
+	}
+	if valid == false {
+		return make([]copyNumRec, 0), nil
+	}
+	return cnRecs, nil
 }
 
 func (svc *serviceContext) processBoundWithItems(bibResp sirsiBibResponse) []boundWithRec {
@@ -475,12 +531,14 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 			return ""
 		}
 
-		resp := []string{"This item is on course reserves so is available for limited use through the circulation desk."}
-		resp = append(resp, fmt.Sprintf("Course Name: %s", crResponse[0].CourseName))
-		resp = append(resp, fmt.Sprintf("Course ID: %s", crResponse[0].CourseID))
-		if crResponse[0].Instructor != "" {
-			resp = append(resp, fmt.Sprintf("Instructor: %s", crResponse[0].Instructor))
-			return strings.Join(resp, "\n")
+		if len(crResponse) > 0 && crResponse[0].CourseID != "" {
+			resp := []string{"This item is on course reserves so is available for limited use through the circulation desk."}
+			resp = append(resp, fmt.Sprintf("Course Name: %s", crResponse[0].CourseName))
+			resp = append(resp, fmt.Sprintf("Course ID: %s", crResponse[0].CourseID))
+			if crResponse[0].Instructor != "" {
+				resp = append(resp, fmt.Sprintf("Instructor: %s", crResponse[0].Instructor))
+				return strings.Join(resp, "\n")
+			}
 		}
 	}
 
