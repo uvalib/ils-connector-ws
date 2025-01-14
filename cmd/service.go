@@ -169,6 +169,7 @@ func (svc *serviceContext) getVersion(c *gin.Context) {
 	vMap := make(map[string]string)
 	vMap["version"] = svc.Version
 	vMap["build"] = build
+	log.Printf("INFO: version %+v", vMap)
 	c.JSON(http.StatusOK, vMap)
 }
 
