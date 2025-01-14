@@ -183,6 +183,7 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 	sirsiUnavailable := false
 	sirsiSignedIn := true
 	if svc.SirsiSession.SessionToken == "" || svc.SirsiSession.isExpired() {
+		log.Printf("INFO: healthcheck detects sirsi expired or missing session token; logging in.")
 		err := svc.sirsiLogin()
 		if err != nil {
 			log.Printf("ERROR: %s", err.Error())
