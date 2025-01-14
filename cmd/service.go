@@ -107,10 +107,11 @@ func intializeService(version string, cfg *serviceConfig) (*serviceContext, erro
 		Timeout:   30 * time.Second,
 	}
 
-	err := ctx.sirsiLogin()
-	if err != nil {
-		log.Printf("ERROR: %s", err.Error())
-	}
+	// defer connection until it is needed
+	// err := ctx.sirsiLogin()
+	// if err != nil {
+	// 	log.Printf("ERROR: %s", err.Error())
+	// }
 
 	return &ctx, nil
 }
