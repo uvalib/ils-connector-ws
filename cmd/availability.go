@@ -455,28 +455,26 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 		return svc.Locations.mediumRareMessage()
 	}
 
-	// https://ilstest.lib.virginia.edu/uhtbin/course_reserves?item_id=35007007757960 this has a reserve
-	// items without a reserve return [{"instructor":null,"itemID":"X031517421","courseName":null,"courseID":null}]
-	crURL := fmt.Sprintf("%s/course_reserves?item_id=%s", svc.SirsiConfig.ScriptURL, item.Barcode)
-	rawResp, crErr := svc.serviceGet(crURL, "")
-	if crErr != nil {
-		log.Printf("ERROR: unable to get course reser info for %s: %s", item.Barcode, crErr.Message)
-		return ""
-	}
+	if svc.Locations.isCourseReserve((item.CurrentLocationID)) {
+		crURL := fmt.Sprintf("%s/course_reserves?item_id=%s", svc.SirsiConfig.ScriptURL, item.Barcode)
+		rawResp, crErr := svc.serviceGet(crURL, "")
+		if crErr != nil {
+			log.Printf("ERROR: unable to get course reser info for %s: %s", item.Barcode, crErr.Message)
+			return ""
+		}
 
-	var crResponse []struct {
-		Barcode    string `json:"itemID"`
-		CourseID   string `json:"courseID"`
-		CourseName string `json:"courseName"`
-		Instructor string `json:"instructor"`
-	}
-	parsErr := json.Unmarshal(rawResp, &crResponse)
-	if parsErr != nil {
-		log.Printf("ERROR: unable to parse course_reserve response: %s", parsErr.Error())
-		return ""
-	}
+		var crResponse []struct {
+			Barcode    string `json:"itemID"`
+			CourseID   string `json:"courseID"`
+			CourseName string `json:"courseName"`
+			Instructor string `json:"instructor"`
+		}
+		parsErr := json.Unmarshal(rawResp, &crResponse)
+		if parsErr != nil {
+			log.Printf("ERROR: unable to parse course_reserve response: %s", parsErr.Error())
+			return ""
+		}
 
-	if len(crResponse) > 0 && crResponse[0].CourseID != "" {
 		resp := []string{"This item is on course reserves so is available for limited use through the circulation desk."}
 		resp = append(resp, fmt.Sprintf("Course Name: %s", crResponse[0].CourseName))
 		resp = append(resp, fmt.Sprintf("Course ID: %s", crResponse[0].CourseID))

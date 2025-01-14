@@ -9,10 +9,20 @@ import (
 )
 
 type locationContext struct {
-	Records        []locationRec
-	NonCirculating []string
-	OnShelf        []string
-	RefreshAt      time.Time
+	Records          []locationRec
+	ReserveLocations []string
+	NonCirculating   []string
+	OnShelf          []string
+	RefreshAt        time.Time
+}
+
+type sirsiReserveLocationRec struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Location struct {
+			Key string `json:"key"`
+		} `json:"location"`
+	} `json:"fields"`
 }
 
 type sirsiLocationRec struct {
@@ -44,31 +54,28 @@ func (svc *serviceContext) refreshLocations() {
 		svc.Locations.OnShelf = loadDataFile("./data/onshelf-loc.txt")
 	}
 
-	locs, err := svc.getSirsiLocations()
-	if err != nil {
-		log.Printf("ERROR: get locations failed: %s", err.Error())
-		svc.Locations.Records = make([]locationRec, 0)
-		svc.Locations.RefreshAt = time.Now()
-		return
-	}
-
-	svc.Locations.Records = locs
 	svc.Locations.RefreshAt = time.Now().Add(24 * time.Hour)
+	svc.getSirsiLocations()
+	svc.getSirsiReserveLocations()
 }
 
-func (svc *serviceContext) getSirsiLocations() ([]locationRec, error) {
+func (svc *serviceContext) getSirsiLocations() {
 	log.Printf("INFO: get sirsi locations")
-	locs := make([]locationRec, 0)
+	svc.Locations.Records = make([]locationRec, 0)
 	url := fmt.Sprintf("/policy/location/simpleQuery?key=*&includeFields=key,policyNumber,description,shadowed")
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
-		return locs, fmt.Errorf("%s", sirsiErr.string())
+		log.Printf("ERROR: unable to get locations: %s", sirsiErr.Message)
+		svc.Locations.RefreshAt = time.Now()
+		return
 	}
 
 	var locResp []sirsiLocationRec
 	parseErr := json.Unmarshal(sirsiRaw, &locResp)
 	if parseErr != nil {
-		return locs, fmt.Errorf("unable to parse reponse: %s", parseErr.Error())
+		log.Printf("ERROR: unable to parse locations response: %s", parseErr)
+		svc.Locations.RefreshAt = time.Now()
+		return
 	}
 
 	for _, sl := range locResp {
@@ -79,11 +86,32 @@ func (svc *serviceContext) getSirsiLocations() ([]locationRec, error) {
 		loc.Circulating = !svc.Locations.isNonCirculating(sl.Key)
 		loc.Online = svc.Locations.isOnline(sl.Key)
 		loc.Shadowed = sl.Fields.Shadowed
+		svc.Locations.Records = append(svc.Locations.Records, loc)
+	}
+}
 
-		locs = append(locs, loc)
+func (svc *serviceContext) getSirsiReserveLocations() {
+	log.Printf("INFO: get sirsi reserve locations")
+	svc.Locations.ReserveLocations = make([]string, 0)
+	url := fmt.Sprintf("/policy/reserveCollection/simpleQuery?key=*&includeFields=key,location{key}")
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
+	if sirsiErr != nil {
+		log.Printf("ERROR: unable to get reserve locations: %s", sirsiErr.Message)
+		svc.Locations.RefreshAt = time.Now()
+		return
 	}
 
-	return locs, nil
+	var locResp []sirsiReserveLocationRec
+	parseErr := json.Unmarshal(sirsiRaw, &locResp)
+	if parseErr != nil {
+		log.Printf("ERROR: unable to parse reserve locations response: %s", parseErr)
+		svc.Locations.RefreshAt = time.Now()
+		return
+	}
+
+	for _, l := range locResp {
+		svc.Locations.ReserveLocations = append(svc.Locations.ReserveLocations, l.Fields.Location.Key)
+	}
 }
 
 func (lc *locationContext) find(key string) *locationRec {
@@ -92,6 +120,16 @@ func (lc *locationContext) find(key string) *locationRec {
 		if loc.Key == key {
 			match = &loc
 			break
+		}
+	}
+	return match
+}
+
+func (lc *locationContext) isCourseReserve(key string) bool {
+	match := false
+	for _, loc := range lc.ReserveLocations {
+		if loc == strings.TrimSpace(strings.ToUpper(key)) {
+			match = true
 		}
 	}
 	return match

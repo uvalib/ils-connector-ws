@@ -4,7 +4,7 @@ go 1.22.0
 
 require (
 	github.com/gin-contrib/cors v1.7.3
-	github.com/gin-contrib/gzip v1.1.0
+	github.com/gin-contrib/gzip v1.2.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/uvalib/virgo4-jwt v1.0.0
@@ -12,13 +12,13 @@ require (
 
 require (
 	github.com/bytedance/sonic v1.12.7 // indirect
-	github.com/bytedance/sonic/loader v0.2.2 // indirect
+	github.com/bytedance/sonic/loader v0.2.3 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/gin-contrib/sse v1.0.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.23.0 // indirect
+	github.com/go-playground/validator/v10 v10.24.0 // indirect
 	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
