@@ -46,7 +46,7 @@ func main() {
 	router.POST("/checkouts/renew", svc.sirsiAuthMiddleware, svc.renewCheckouts)
 
 	// course reserves management
-	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.validateCourseReserves)
+	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.validateCourseReserves)
 	// TODO move search and other reserves functionality from avail service here
 
 	// dibs management

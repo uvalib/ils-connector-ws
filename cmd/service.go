@@ -107,11 +107,10 @@ func intializeService(version string, cfg *serviceConfig) (*serviceContext, erro
 		Timeout:   30 * time.Second,
 	}
 
-	// defer connection until it is needed
-	// err := ctx.sirsiLogin()
-	// if err != nil {
-	// 	log.Printf("ERROR: %s", err.Error())
-	// }
+	err := ctx.sirsiLogin()
+	if err != nil {
+		log.Printf("ERROR: %s", err.Error())
+	}
 
 	return &ctx, nil
 }
@@ -154,7 +153,7 @@ func (svc *serviceContext) sirsiLogin() error {
 
 // ignoreFavicon is a dummy to handle browser favicon requests without warnings
 func (svc *serviceContext) ignoreFavicon(c *gin.Context) {
-	// NO-OP
+	c.String(http.StatusOK, "")
 }
 
 // GetVersion reports the version of the serivce
