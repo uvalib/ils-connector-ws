@@ -107,11 +107,6 @@ func intializeService(version string, cfg *serviceConfig) (*serviceContext, erro
 		Timeout:   30 * time.Second,
 	}
 
-	err := ctx.sirsiLogin()
-	if err != nil {
-		log.Printf("ERROR: %s", err.Error())
-	}
-
 	return &ctx, nil
 }
 
@@ -181,21 +176,22 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 	hcMap := make(map[string]hcResp)
 
 	// sirsi healthcheck
-	sirsiUnavailable := false
-	sirsiSignedIn := true
-	if svc.SirsiSession.SessionToken == "" || svc.SirsiSession.isExpired() {
-		log.Printf("INFO: healthcheck detects sirsi expired or missing session token; logging in.")
-		err := svc.sirsiLogin()
-		if err != nil {
-			log.Printf("ERROR: %s", err.Error())
-			hcMap["sirsi"] = hcResp{Healthy: false, Message: err.Error()}
-			sirsiSignedIn = false
-			if strings.Contains(err.Error(), "503") {
-				sirsiUnavailable = true
-			}
-		}
-	}
-	if sirsiSignedIn {
+	// sirsiUnavailable := false
+	// sirsiSignedIn := true
+	// if svc.SirsiSession.SessionToken == "" || svc.SirsiSession.isExpired() {
+	// 	log.Printf("INFO: healthcheck detects sirsi expired or missing session token; logging in.")
+	// 	err := svc.sirsiLogin()
+	// 	if err != nil {
+	// 		log.Printf("ERROR: %s", err.Error())
+	// 		hcMap["sirsi"] = hcResp{Healthy: false, Message: err.Error()}
+	// 		sirsiSignedIn = false
+	// 		if strings.Contains(err.Error(), "503") {
+	// 			sirsiUnavailable = true
+	// 		}
+	// 	}
+	// }
+	// if sirsiSignedIn {
+	if svc.SirsiSession.SessionToken != "" && svc.SirsiSession.isExpired() == false {
 		url := fmt.Sprintf("/user/staff/key/%s", svc.SirsiSession.StaffKey)
 		_, err := svc.sirsiGet(svc.HTTPClient, url)
 		if err != nil {
@@ -223,11 +219,11 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 		hcMap["pda"] = hcResp{Healthy: true}
 	}
 
-	if sirsiUnavailable {
-		c.JSON(http.StatusInternalServerError, hcMap)
-	} else {
-		c.JSON(http.StatusOK, hcMap)
-	}
+	// if sirsiUnavailable {
+	// 	c.JSON(http.StatusInternalServerError, hcMap)
+	// } else {
+	c.JSON(http.StatusOK, hcMap)
+	// }
 }
 
 func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *requestError) {
