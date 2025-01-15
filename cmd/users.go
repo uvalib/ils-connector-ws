@@ -29,11 +29,6 @@ type userInfoRespData struct {
 
 // Raw sirsi response structures  =============================================
 
-type sirsiUserSearchResp struct {
-	TotalResults uint64          `json:"totalResults"`
-	Result       []sirsiUserData `json:"result"`
-}
-
 type sirsiAddressData struct {
 	Key    string `json:"key"`
 	Fields struct {
@@ -77,11 +72,6 @@ type sirsiBillItem struct {
 	} `json:"fields"`
 }
 
-type sirsiBillResponse struct {
-	TotalResults uint64          `json:"totalResults"`
-	Result       []sirsiBillItem `json:"result"`
-}
-
 type sirsiUserData struct {
 	Key    string `json:"key"`
 	Fields struct {
@@ -113,11 +103,6 @@ type sirsiUserData struct {
 		Address2 []sirsiAddressData `json:"address2"`
 		Address3 []sirsiAddressData `json:"address3"`
 	} `json:"fields"`
-}
-
-type sirsiCheckoutsResp struct {
-	TotalResults uint64          `json:"totalResults"`
-	Result       []sirsiCheckout `json:"result"`
 }
 
 type sirsiCheckoutBlocRec struct {
@@ -169,11 +154,6 @@ type sirsiCheckout struct {
 			Fields sirsiCheckoutBlocRec `json:"fields"`
 		} `json:"blockList"`
 	} `json:"fields"`
-}
-
-type sirsiHoldsResp struct {
-	TotalResults uint64       `json:"totalResults"`
-	Result       []sirsiHolds `json:"result"`
 }
 
 type sirsiHolds struct {
@@ -353,7 +333,7 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	log.Printf("INFO: lookup user %s in sirsi", computeID)
 	fields := "barcode,primaryAddress{*},address1,address2,address3,displayName,preferredName,firstName,middleName,lastName,"
 	fields += "profile,patronStatusInfo{standing,amountOwed},library"
-	sirsiURL := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&includeFields=%s", computeID, fields)
+	sirsiURL := fmt.Sprintf("/user/patron/alternateID/%s?includeFields=%s", computeID, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, sirsiURL)
 	if sirsiErr != nil {
 		log.Printf("ERROR: get sirsi user %s failed: %s", computeID, sirsiErr.string())
@@ -361,7 +341,7 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 		return
 	}
 
-	var sirsiResp sirsiUserSearchResp
+	var sirsiResp sirsiUserData
 	parseErr := json.Unmarshal(sirsiRaw, &sirsiResp)
 	if parseErr != nil {
 		log.Printf("ERROR: unable to parse sirsi user %s response: %s", computeID, parseErr.Error())
@@ -369,19 +349,7 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 		return
 	}
 
-	if sirsiResp.TotalResults == 0 {
-		log.Printf("INFO: user %s not found in sirsi", computeID)
-		user.NoAccount = true
-		c.JSON(http.StatusOK, user)
-		return
-	}
-	if sirsiResp.TotalResults > 1 {
-		log.Printf("INFO: %d sirsi users found for %s", sirsiResp.TotalResults, computeID)
-		c.String(http.StatusBadRequest, fmt.Sprintf("multiple users match %s", computeID))
-		return
-	}
-
-	userFields := sirsiResp.Result[0].Fields
+	userFields := sirsiResp.Fields
 	primaryAddrFields := userFields.PrimaryAddress.Fields
 	statusFields := userFields.PatronStatusInfo.Fields
 
@@ -428,7 +396,7 @@ func (svc *serviceContext) getUserBills(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: get bills for %s", computeID)
 	fields := "blockList{title,callNumber,amount,createDate,library{description},block{description},item{itemType{description},barcode,bib{author}}}"
-	url := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&includeFields=%s", computeID, fields)
+	url := fmt.Sprintf("/user/patron/alternateID/%s?includeFields=%s", computeID, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
 		log.Printf("ERROR: get sirsi user %s bills failed: %s", computeID, sirsiErr.string())
@@ -436,7 +404,7 @@ func (svc *serviceContext) getUserBills(c *gin.Context) {
 		return
 	}
 
-	var billResp sirsiBillResponse
+	var billResp sirsiBillItem
 	parseErr := json.Unmarshal(sirsiRaw, &billResp)
 	if parseErr != nil {
 		log.Printf("ERROR: unable to parse billd response: %s", parseErr.Error())
@@ -444,14 +412,8 @@ func (svc *serviceContext) getUserBills(c *gin.Context) {
 		return
 	}
 
-	if billResp.TotalResults == 0 || billResp.TotalResults > 1 {
-		log.Printf("INFO: bills for %s not found", computeID)
-		c.String(http.StatusBadRequest, fmt.Sprintf("bills for %s not found", computeID))
-		return
-	}
-
 	bills := make([]billItem, 0)
-	for _, bl := range billResp.Result[0].Fields.BlockList {
+	for _, bl := range billResp.Fields.BlockList {
 		bill := billItem{}
 		bill.Date = bl.Fields.CreateDate
 		amtF, _ := strconv.ParseFloat(bl.Fields.Amount.Amount, 64)
@@ -523,28 +485,23 @@ func (svc *serviceContext) getSirsiUserCheckouts(computeID string) ([]checkoutDe
 	fields := "blockList{amount,block{description},item{key}},"
 	fields += "circRecordList{circulationRule{billStructure{maxFee}},dueDate,overdue,estimatedOverdueAmount,recallDueDate,renewalDate,"
 	fields += "library{description},item{key,barcode,currentLocation,call{dispCallNumber,bib{key,author,title}}}}"
-	url := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&i&includeFields=%s", computeID, fields)
+	url := fmt.Sprintf("/user/patron/alternateID/%s?i&includeFields=%s", computeID, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
 	if sirsiErr != nil {
 		return nil, sirsiErr
 	}
 
-	var coResp sirsiCheckoutsResp
+	var coResp sirsiCheckout
 	parseErr := json.Unmarshal(sirsiRaw, &coResp)
 	if parseErr != nil {
 		return nil, &requestError{StatusCode: http.StatusInternalServerError, Message: parseErr.Error()}
 	}
 
-	if coResp.TotalResults == 0 || coResp.TotalResults > 1 {
-		return nil, &requestError{StatusCode: http.StatusBadRequest, Message: fmt.Sprintf("holds for %s not found", computeID)}
-	}
-
 	checkouts := make([]checkoutDetails, 0)
-	blockList := coResp.Result[0].Fields.BlockList
-	for _, cr := range coResp.Result[0].Fields.CircRecordList {
+	for _, cr := range coResp.Fields.CircRecordList {
 		coCall := cr.Fields.Item.Fields.Call
 		bills := make([]checkoutBill, 0)
-		for _, br := range blockList {
+		for _, br := range coResp.Fields.BlockList {
 			if br.Fields.Item.Key == cr.Fields.Item.Key {
 				bills = append(bills, checkoutBill{
 					Amount: br.Fields.Amount.Amount,
@@ -579,7 +536,7 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: get holds for %s", computeID)
 	fields := "holdRecordList{*,bib{title,author},item{barcode,currentLocation,library,transit{transitReason},call{dispCallNumber}}}"
-	url := fmt.Sprintf("/user/patron/search?q=ALT_ID:%s&i&includeFields=%s", computeID, fields)
+	url := fmt.Sprintf("/user/patron/alternateID/%s?i&includeFields=%s", computeID, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
 	if sirsiErr != nil {
 		log.Printf("ERROR: get sirsi user %s holds failed: %s", computeID, sirsiErr.string())
@@ -587,7 +544,7 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 		return
 	}
 
-	var holdResp sirsiHoldsResp
+	var holdResp sirsiHolds
 	parseErr := json.Unmarshal(sirsiRaw, &holdResp)
 	if parseErr != nil {
 		log.Printf("ERROR: unable to parse holds response: %s", parseErr.Error())
@@ -595,14 +552,8 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 		return
 	}
 
-	if holdResp.TotalResults == 0 || holdResp.TotalResults > 1 {
-		log.Printf("INFO: holds for %s not found", computeID)
-		c.String(http.StatusBadRequest, fmt.Sprintf("holds for %s not found", computeID))
-		return
-	}
-
 	holds := make([]holdDetails, 0)
-	holdRecs := holdResp.Result[0].Fields.HoldRecordList
+	holdRecs := holdResp.Fields.HoldRecordList
 	for _, hr := range holdRecs {
 		hold := holdDetails{ID: hr.Key, UserID: computeID}
 		hold.Status = hr.Fields.Status
