@@ -539,7 +539,7 @@ func (svc *serviceContext) getSirsiUserCheckouts(computeID string) ([]checkoutDe
 		return nil, &requestError{StatusCode: http.StatusBadRequest, Message: fmt.Sprintf("holds for %s not found", computeID)}
 	}
 
-	var checkouts []checkoutDetails
+	checkouts := make([]checkoutDetails, 0)
 	blockList := coResp.Result[0].Fields.BlockList
 	for _, cr := range coResp.Result[0].Fields.CircRecordList {
 		coCall := cr.Fields.Item.Fields.Call
@@ -601,7 +601,7 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 		return
 	}
 
-	var holds []holdDetails
+	holds := make([]holdDetails, 0)
 	holdRecs := holdResp.Result[0].Fields.HoldRecordList
 	for _, hr := range holdRecs {
 		hold := holdDetails{ID: hr.Key, UserID: computeID}
