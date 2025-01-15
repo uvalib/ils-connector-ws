@@ -7,7 +7,7 @@ require (
 	github.com/gin-contrib/gzip v1.2.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
-	github.com/uvalib/virgo4-jwt v1.0.0
+	github.com/uvalib/virgo4-jwt v1.1.0
 )
 
 require (
