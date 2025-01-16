@@ -32,7 +32,8 @@ type sirsiSigniResponse struct {
 }
 
 type sirsiKey struct {
-	Key string `json:"key"`
+	Resource string `json:"resource"`
+	Key      string `json:"key"`
 }
 
 type sirsiDescription struct {

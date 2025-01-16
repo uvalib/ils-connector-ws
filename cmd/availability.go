@@ -119,10 +119,11 @@ type availItem struct {
 	IsVideo           bool             `json:"is_video"`
 	Volume            string           `json:"volume"`
 	NonCirculating    bool             `json:"non_circulating"`
+	CopyNumber        int              `json:"-"`
 }
 
 func (ai *availItem) toHoldableItem() holdableItem {
-	return holdableItem{Barcode: ai.Barcode,
+	return holdableItem{CallNumber: ai.CallNumber, Barcode: ai.Barcode,
 		Label: ai.CallNumber, Library: ai.Library,
 		Location: ai.CurrentLocation, LocationID: ai.CurrentLocationID,
 		IsVideo: ai.IsVideo, Notice: ai.Notice}
@@ -146,6 +147,7 @@ type boundWithRec struct {
 }
 
 type holdableItem struct {
+	CallNumber string `json:"call_number"`
 	Barcode    string `json:"barcode"`
 	Label      string `json:"label"`
 	Library    string `json:"library"`
@@ -161,16 +163,6 @@ type availabilityResponse struct {
 	Items          []availItem          `json:"items"`
 	RequestOptions []availRequestOption `json:"request_options"`
 	BoundWith      []boundWithRec       `json:"bound_with"`
-}
-
-type availToOrderItem struct {
-	CatalogKey  string `json:"catalog_key"`
-	ISBN        string `json:"pda_isbn"`
-	Barcode     string `json:"barcode"`
-	Title       string `json:"titke"`
-	FundCode    string `json:"fund_code"`
-	LoanType    string `json:"load_type"`
-	HoldLibrary string `json:"holdLibrary"`
 }
 
 // u2419229
@@ -224,12 +216,14 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 	out := make([]availItem, 0)
 	specialCollectionsCount := 0
 	for _, callRec := range bibResp.Fields.CallList {
-		if callRec.Fields.Shadowed {
-			// dont process shadowed items
-			continue
-		}
 		for _, itemRec := range callRec.Fields.ItemList {
+			currLoc := svc.Locations.find(itemRec.Fields.CurrentLocation.Key)
+			if currLoc.Shadowed || currLoc.Online {
+				continue
+			}
+
 			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
+			item.CopyNumber = itemRec.Fields.CopyNumber
 			item.Barcode = itemRec.Fields.Barcode
 			item.Volume = callRec.Fields.Volumetric
 			item.Library = callRec.Fields.Library.Fields.Description
@@ -335,7 +329,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 
 		// unavailable or non circulating items are not holdable. This assumes (per original code)
 		// that al users can request onshelf items
-		if item.Unavailable || item.NonCirculating {
+		if item.Unavailable || item.NonCirculating || item.CopyNumber > 1 {
 			continue
 		}
 
@@ -354,7 +348,9 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		}
 
 		if item.Volume != "" {
-			holdableItems = append(holdableItems, item.toHoldableItem())
+			if callNumberExists(item.CallNumber, holdableItems) == false {
+				holdableItems = append(holdableItems, item.toHoldableItem())
+			}
 		}
 	}
 
@@ -443,6 +439,17 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 	}
 
 	return out
+}
+
+func callNumberExists(callNum string, holdableItems []holdableItem) bool {
+	exist := false
+	for _, hi := range holdableItems {
+		if strings.ToUpper(hi.CallNumber) == strings.ToUpper(callNum) {
+			exist = true
+			break
+		}
+	}
+	return exist
 }
 
 func (svc *serviceContext) generatePDACreateURL(titleID, barcode string, marc sirsiBibData) string {
@@ -548,13 +555,13 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 func (svc *serviceContext) isNonCirculating(item availItem) bool {
 	lib := svc.Libraries.find(item.LibraryID)
 	loc := svc.Locations.find(item.CurrentLocationID)
-	return lib.Circulating == false || loc.Circulating == false
+	return lib != nil && loc != nil && lib.Circulating == false || loc.Circulating == false
 }
 
 func (svc *serviceContext) isOnShelf(item availItem) bool {
 	lib := svc.Libraries.find(item.LibraryID)
 	loc := svc.Locations.find(item.CurrentLocationID)
-	return lib.OnShelf && loc.OnShelf
+	return lib != nil && loc != nil && lib.OnShelf && loc.OnShelf
 }
 
 func (svc *serviceContext) getAvailabilityList(c *gin.Context) {
