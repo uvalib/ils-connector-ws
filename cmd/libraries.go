@@ -65,10 +65,11 @@ func (svc *serviceContext) refreshLibraries() {
 			Key:         sl.Key,
 			Description: sl.Fields.Description,
 		}
-		lib.OnShelf = svc.Libraries.isOnShelfLibrary(sl.Key)
-		lib.Circulating = !svc.Locations.isNonCirculating(sl.Key)
+		lib.OnShelf = svc.Libraries.isOnShelf(sl.Key)
+		lib.Circulating = !svc.Libraries.isNonCirculating(sl.Key)
 		svc.Libraries.Records = append(svc.Libraries.Records, lib)
 	}
+	log.Printf("INFO: libraries refresed")
 }
 
 func (lc *libraryContext) find(key string) *libraryRec {
@@ -98,7 +99,7 @@ func (lc *libraryContext) lookupPDALibrary(pdaLib string) string {
 	return pdaMap[pdaLib]
 }
 
-func (lc *libraryContext) isNonCirculatingLibrary(key string) bool {
+func (lc *libraryContext) isNonCirculating(key string) bool {
 	match := false
 	for _, loc := range lc.NonCirculating {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {
@@ -108,7 +109,7 @@ func (lc *libraryContext) isNonCirculatingLibrary(key string) bool {
 	return match
 }
 
-func (lc *libraryContext) isOnShelfLibrary(key string) bool {
+func (lc *libraryContext) isOnShelf(key string) bool {
 	match := false
 	for _, loc := range lc.OnShelf {
 		if loc == strings.TrimSpace(strings.ToUpper(key)) {

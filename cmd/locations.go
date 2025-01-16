@@ -57,6 +57,7 @@ func (svc *serviceContext) refreshLocations() {
 	svc.Locations.RefreshAt = time.Now().Add(24 * time.Hour)
 	svc.getSirsiLocations()
 	svc.getSirsiReserveLocations()
+	log.Printf("INFO: locations refreshed")
 }
 
 func (svc *serviceContext) getSirsiLocations() {
