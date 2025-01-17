@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -162,10 +161,17 @@ type availabilityResponse struct {
 // u2419229
 func (svc *serviceContext) getAvailability(c *gin.Context) {
 	catKey := c.Param("cat_key")
+
+	matched, _ := regexp.MatchString(`^u\d*$`, catKey)
+	if !matched {
+		log.Printf("INFO: key %s not in sirsi", catKey)
+		c.String(http.StatusNotFound, fmt.Sprintf("%s not found", catKey))
+		return
+	}
+
 	re := regexp.MustCompile("^u")
 	cleanKey := re.ReplaceAllString(catKey, "")
 	log.Printf("INFO: get availability for %s", catKey)
-	// fields := "boundWithList{*},bib,callList{*,library{description},itemList{*,currentLocation{key,description,shadowed}}}"
 	fields := "boundWithList{*},bib,callList{dispCallNumber,volumetric,shadowed,library{description},"
 	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
 	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
@@ -175,7 +181,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 			log.Printf("INFO: %s was not found", catKey)
 			c.String(http.StatusNotFound, fmt.Sprintf("%s not found", catKey))
 		} else {
-			log.Printf("ERROR: unable to get bin info for %s: %s", catKey, sirsiErr.Message)
+			log.Printf("ERROR: unable to get bib info for %s: %s", catKey, sirsiErr.Message)
 			c.String(sirsiErr.StatusCode, sirsiErr.Message)
 		}
 		return
@@ -210,7 +216,6 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []availItem {
 	log.Printf("INFO: process items for %s", bibResp.Key)
 	out := make([]availItem, 0)
-	specialCollectionsCount := 0
 	for _, callRec := range bibResp.Fields.CallList {
 		if callRec.Fields.Shadowed {
 			continue
@@ -222,14 +227,23 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 			}
 
 			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
+			multipleCopies := false
+			for _, test := range callRec.Fields.ItemList {
+				if test.Fields.CopyNumber > 1 {
+					multipleCopies = true
+					break
+				}
+			}
+			if multipleCopies {
+				item.CallNumber += fmt.Sprintf(" (copy %d)", itemRec.Fields.CopyNumber)
+			}
+
 			item.CopyNumber = itemRec.Fields.CopyNumber
 			item.Barcode = itemRec.Fields.Barcode
 			item.Volume = callRec.Fields.Volumetric
 			item.Library = callRec.Fields.Library.Fields.Description
 			item.LibraryID = callRec.Fields.Library.Key
-			if item.LibraryID == "SPEC-COLL" {
-				specialCollectionsCount++
-			}
+
 			item.CurrentLocationID = itemRec.Fields.CurrentLocation.Key
 			item.CurrentLocation = itemRec.Fields.CurrentLocation.Fields.Description
 			item.HomeLocationID = itemRec.Fields.HomeLocation.Key
@@ -249,53 +263,7 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 			out = append(out, item)
 		}
 	}
-
-	if len(out) > 1 && specialCollectionsCount > 0 {
-		log.Printf("INFO: update copy numbers for special collections items")
-		cnRecs, err := svc.getCopyNumbers(bibResp.Key)
-		if err != nil {
-			log.Printf("ERROR: %s", err.Error())
-		}
-		for _, cnRec := range cnRecs {
-			for idx, item := range out {
-				if item.Barcode == cnRec.Barcode {
-					// note: cant just update item since out is an array of structs (not pointers to structs)
-					// so you would just be updating the item from the loop, not the array itself.
-					// this syntax does what is needed:
-					out[idx].CallNumber += fmt.Sprintf(" (copy %s)", cnRec.CopyNumber)
-					break
-				}
-			}
-		}
-	}
 	return out
-}
-
-func (svc *serviceContext) getCopyNumbers(titleID string) ([]copyNumRec, error) {
-	crURL := fmt.Sprintf("%s/getCopyNums?key=%s", svc.SirsiConfig.ScriptURL, titleID)
-	rawResp, cpyErr := svc.serviceGet(crURL, "")
-	if cpyErr != nil {
-		return nil, fmt.Errorf("unable to get copy number data: %s", cpyErr.Message)
-	}
-	var cnRecs []copyNumRec
-	parseErr := json.Unmarshal(rawResp, &cnRecs)
-	if parseErr != nil {
-		return nil, fmt.Errorf("unable to parse copy number response: %s", parseErr.Error())
-	}
-
-	// check if any copy numbers are > 1. If not, nothing to do and return empty list
-	valid := false
-	for _, cn := range cnRecs {
-		cnt, _ := strconv.Atoi(cn.CopyNumber)
-		if cnt > 1 {
-			valid = true
-			break
-		}
-	}
-	if valid == false {
-		return make([]copyNumRec, 0), nil
-	}
-	return cnRecs, nil
 }
 
 func (svc *serviceContext) processBoundWithItems(bibResp sirsiBibResponse) []boundWithRec {
