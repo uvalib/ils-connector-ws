@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
+	"github.com/uvalib/virgo4-jwt/v4jwt"
 )
 
 type sirsiStaffLoginReq struct {
@@ -242,6 +243,20 @@ func (svc *serviceContext) sirsiGet(client *http.Client, uri string) ([]byte, *r
 	return resp, err
 }
 
+func (svc *serviceContext) sirsiDelete(client *http.Client, uri string) ([]byte, *requestError) {
+	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
+	log.Printf("INFO: sirsi delete request: %s", url)
+	startTime := time.Now()
+	req, _ := http.NewRequest("DELETE", url, nil)
+	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
+	rawResp, rawErr := client.Do(req)
+	resp, err := handleAPIResponse(url, rawResp, rawErr)
+	elapsedNanoSec := time.Since(startTime)
+	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
+	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	return resp, err
+}
+
 func (svc *serviceContext) sirsiPost(client *http.Client, uri string, data interface{}) ([]byte, *requestError) {
 	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
 	log.Printf("INFO: sirsi post request: %s", url)
@@ -268,6 +283,20 @@ func (svc *serviceContext) setSirsiHeaders(req *http.Request, role string, authT
 	if authToken != "" {
 		req.Header.Set("x-sirs-sessionToken", authToken)
 	}
+}
+
+func getVirgoClaims(c *gin.Context) (*v4jwt.V4Claims, error) {
+	claims, exist := c.Get("claims")
+	if exist == false {
+		log.Printf("ERROR: no claims found for user requesting a hold")
+		return nil, fmt.Errorf("request is not authorized")
+	}
+	v4Claims, ok := claims.(*v4jwt.V4Claims)
+	if !ok {
+		log.Printf("ERROR: invalid claims found for user requesting a hold")
+		return nil, fmt.Errorf("request is not authorized")
+	}
+	return v4Claims, nil
 }
 
 func mintBasicJWT(secret string) (string, error) {

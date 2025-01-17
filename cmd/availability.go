@@ -53,7 +53,6 @@ type sirsiBibResponse struct {
 				Bib            sirsiKey `json:"bib"`
 				Volumetric     string   `json:"volumetric"`
 				DispCallNumber string   `json:"dispCallNumber"`
-				Classification sirsiKey `json:"classification"`
 				Library        struct {
 					Key    string           `json:"key"`
 					Fields sirsiDescription `json:"fields"`
@@ -62,11 +61,8 @@ type sirsiBibResponse struct {
 				ItemList []struct {
 					Key    string `json:"key"`
 					Fields struct {
-						Bib             sirsiKey `json:"bib"`
-						Call            sirsiKey `json:"call"`
-						Barcode         string   `json:"barcode"`
-						Circulate       bool     `json:"circulate"`
-						CopyNumber      int      `json:"copyNumber"`
+						Barcode         string `json:"barcode"`
+						CopyNumber      int    `json:"copyNumber"`
 						CurrentLocation struct {
 							Key    string `json:"key"`
 							Fields struct {
@@ -76,8 +72,6 @@ type sirsiBibResponse struct {
 						} `json:"currentLocation"`
 						HomeLocation sirsiKey `json:"homeLocation"`
 						ItemType     sirsiKey `json:"itemType"`
-						Library      sirsiKey `json:"library"`
-						MediaDesk    string   `json:"mediaDesk"`
 						Shadowed     bool     `json:"shadowed"`
 					} `json:"fields"`
 				} `json:"itemList"`
@@ -171,7 +165,9 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	re := regexp.MustCompile("^u")
 	cleanKey := re.ReplaceAllString(catKey, "")
 	log.Printf("INFO: get availability for %s", catKey)
-	fields := "boundWithList{*},bib,callList{*,library{description},itemList{*,currentLocation{key,description,shadowed}}}"
+	// fields := "boundWithList{*},bib,callList{*,library{description},itemList{*,currentLocation{key,description,shadowed}}}"
+	fields := "boundWithList{*},bib,callList{dispCallNumber,volumetric,shadowed,library{description},"
+	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
 	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
@@ -216,6 +212,9 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 	out := make([]availItem, 0)
 	specialCollectionsCount := 0
 	for _, callRec := range bibResp.Fields.CallList {
+		if callRec.Fields.Shadowed {
+			continue
+		}
 		for _, itemRec := range callRec.Fields.ItemList {
 			currLoc := svc.Locations.find(itemRec.Fields.CurrentLocation.Key)
 			if currLoc.Shadowed || currLoc.Online {

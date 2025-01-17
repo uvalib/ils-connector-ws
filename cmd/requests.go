@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/uvalib/virgo4-jwt/v4jwt"
 )
 
 type holdData struct {
@@ -27,6 +27,19 @@ type sirsiHoldRequest struct {
 	Comment       string   `json:"comment"`
 }
 
+type sirsiHoldRec struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Patron struct {
+			Fields struct {
+				AlternateID string `json:"alternateID"`
+			} `json:"fields"`
+		} `json:"patron"`
+		RecallStatus string `json:"recallStatus"`
+		Status       string `json:"status"`
+	} `json:"fields"`
+}
+
 func (svc *serviceContext) createHold(c *gin.Context) {
 	var holdReq holdData
 	err := c.ShouldBindJSON(&holdReq)
@@ -36,15 +49,8 @@ func (svc *serviceContext) createHold(c *gin.Context) {
 		return
 	}
 
-	claims, exist := c.Get("claims")
-	if exist == false {
-		log.Printf("ERROR: no claims found for user requesting a hold")
-		c.String(http.StatusUnauthorized, "you are not authorized to request a hold")
-		return
-	}
-	v4Claims, ok := claims.(*v4jwt.V4Claims)
-	if !ok {
-		log.Printf("ERROR: invalid claims found for user requesting a hold")
+	v4Claims, claimErr := getVirgoClaims(c)
+	if claimErr != nil {
 		c.String(http.StatusUnauthorized, "you are not authorized to request a hold")
 		return
 	}
@@ -89,8 +95,61 @@ func (svc *serviceContext) createHold(c *gin.Context) {
 }
 
 func (svc *serviceContext) deleteHold(c *gin.Context) {
-	// TODO
-	c.String(http.StatusNotImplemented, "not implemented")
+	holdID := c.Param("id")
+	v4Claims, claimErr := getVirgoClaims(c)
+	if claimErr != nil {
+		c.String(http.StatusUnauthorized, "you are not authorized to cancel a hold")
+		return
+	}
+	log.Printf("INFO: %s requests hold %s cancel", v4Claims.UserID, holdID)
+
+	fields := "status,recallStatus,patron{alternateID}"
+	url := fmt.Sprintf("/circulation/holdRecord/key/%s?includeFields=%s", holdID, fields)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
+	if sirsiErr != nil {
+		if sirsiErr.StatusCode == 404 {
+			log.Printf("INFO: %s was not found", holdID)
+			c.String(http.StatusNotFound, fmt.Sprintf("%s not found", holdID))
+		} else {
+			log.Printf("ERROR: unable to get hold info for %s: %s", holdID, sirsiErr.Message)
+			c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		}
+		return
+	}
+
+	var hold sirsiHoldRec
+	parseErr := json.Unmarshal(sirsiRaw, &hold)
+	if parseErr != nil {
+		log.Printf("ERROR: unable to parse sirsi hold response for %s: %s", holdID, parseErr.Error())
+		c.String(http.StatusInternalServerError, parseErr.Error())
+		return
+	}
+
+	holdOwner := hold.Fields.Patron.Fields.AlternateID
+	if strings.ToUpper(holdOwner) != strings.ToUpper(v4Claims.UserID) {
+		log.Printf("ERROR: hold user mismatch user %s vs hold patron %s", v4Claims.UserID, holdOwner)
+		c.String(http.StatusBadRequest, "you do not hold this item")
+		return
+	}
+
+	if (hold.Fields.Status == "PLACED" && hold.Fields.RecallStatus != "RUSH") == false {
+		log.Printf("INFO: hold %s cannot be cancelled", holdID)
+		c.String(http.StatusBadRequest, "hold cannot be cancelled")
+		return
+	}
+
+	delURL := fmt.Sprintf("/circulation/holdRecord/key/%s", holdID)
+	_, sirsiErr = svc.sirsiDelete(svc.HTTPClient, delURL)
+	if sirsiErr != nil {
+		if sirsiErr.StatusCode == 204 {
+			c.String(http.StatusOK, "deleted")
+		} else {
+			log.Printf("ERROR: cancel hold failed: %s", sirsiErr.string())
+			c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		}
+		return
+	}
+	c.String(http.StatusOK, "deleted")
 }
 
 func (svc *serviceContext) createScan(c *gin.Context) {
