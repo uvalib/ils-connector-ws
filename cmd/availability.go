@@ -116,8 +116,12 @@ type availItem struct {
 }
 
 func (ai *availItem) toHoldableItem() holdableItem {
-	return holdableItem{CallNumber: ai.CallNumber, Barcode: ai.Barcode,
-		Label: ai.CallNumber, Library: ai.Library,
+	cn := ai.CallNumber
+	if ai.LibraryID != "SPEC-COLL" {
+		cn = strings.Split(ai.CallNumber, " (copy")[0]
+	}
+	return holdableItem{CallNumber: cn, Barcode: ai.Barcode,
+		Label: cn, Library: ai.Library,
 		Location: ai.CurrentLocation, LocationID: ai.CurrentLocationID,
 		IsVideo: ai.IsVideo, Notice: ai.Notice}
 }
