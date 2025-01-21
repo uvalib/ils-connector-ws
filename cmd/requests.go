@@ -11,7 +11,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type holdData struct {
+type holdRequest struct {
+	PickupLibrary string `json:"pickupLibrary"`
+	ItemBarcode   string `json:"itemBarcode"`
+	IlliadTN      string `json:"illiadTN"` // only present in scan requests (illiad transaction ID)
+}
+
+type holdResponse struct {
 	PickupLibrary string `json:"pickupLibrary"`
 	ItemBarcode   string `json:"itemBarcode"`
 	UserID        string `json:"user_id"`
@@ -41,7 +47,7 @@ type sirsiHoldRec struct {
 }
 
 func (svc *serviceContext) createHold(c *gin.Context) {
-	var holdReq holdData
+	var holdReq holdRequest
 	err := c.ShouldBindJSON(&holdReq)
 	if err != nil {
 		log.Printf("INFO: Unable to parse hold request: %s", err.Error())
@@ -54,26 +60,7 @@ func (svc *serviceContext) createHold(c *gin.Context) {
 		c.String(http.StatusUnauthorized, "you are not authorized to request a hold")
 		return
 	}
-	log.Printf("INFO: hold request: %+v", holdReq)
-
-	req := sirsiHoldRequest{
-		Type:         "TITLE",
-		Range:        "GROUP",
-		RecallStatus: "STANDARD",
-		PickupLibrary: sirsiKey{
-			Resource: "/policy/library",
-			Key:      holdReq.PickupLibrary,
-		},
-		ItemBarcode:   holdReq.ItemBarcode,
-		PatronBarcode: v4Claims.Barcode,
-	}
-	payloadBytes, _ := json.Marshal(req)
-	url := fmt.Sprintf("%s/circulation/holdRecord/placeHold?includeFields=holdRecord{*}", svc.SirsiConfig.WebServicesURL)
-	postReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	svc.setSirsiHeaders(postReq, "PATRON", svc.SirsiSession.SessionToken)
-	postReq.Header.Set("sd-working-libraryid", v4Claims.HomeLibrary)
-	rawResp, rawErr := svc.HTTPClient.Do(postReq)
-	_, holdErr := handleAPIResponse(url, rawResp, rawErr)
+	holdErr := svc.placeHold(holdReq, v4Claims.Barcode, v4Claims.HomeLibrary)
 	if holdErr != nil {
 		log.Printf("ERROR: place hold %+v failed: %s", holdReq, holdErr.Message)
 		c.String(holdErr.StatusCode, holdErr.Message)
@@ -82,9 +69,9 @@ func (svc *serviceContext) createHold(c *gin.Context) {
 
 	// to client:  {"hold":{"pickup_library":"CLEMONS","item_barcode":"X001167565","user_id":"lf6f"}}
 	out := struct {
-		Hold holdData `json:"hold"`
+		Hold holdResponse `json:"hold"`
 	}{
-		Hold: holdData{
+		Hold: holdResponse{
 			ItemBarcode:   holdReq.ItemBarcode,
 			PickupLibrary: holdReq.PickupLibrary,
 			UserID:        v4Claims.UserID,
@@ -153,8 +140,66 @@ func (svc *serviceContext) deleteHold(c *gin.Context) {
 }
 
 func (svc *serviceContext) createScan(c *gin.Context) {
-	// TODO
-	c.String(http.StatusNotImplemented, "not implemented")
+	var holdReq holdRequest
+	err := c.ShouldBindJSON(&holdReq)
+	if err != nil {
+		log.Printf("INFO: Unable to parse scan request: %s", err.Error())
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	v4Claims, claimErr := getVirgoClaims(c)
+	if claimErr != nil {
+		c.String(http.StatusUnauthorized, "you are not authorized to request a scan")
+		return
+	}
+	log.Printf("INFO: scan request: %+v", holdReq)
+	holdErr := svc.placeHold(holdReq, "999999462", "LEO")
+	if holdErr != nil {
+		log.Printf("ERROR: scan request %+v failed: %s", holdReq, holdErr.Message)
+		c.String(holdErr.StatusCode, holdErr.Message)
+		return
+	}
+
+	out := struct {
+		Hold holdResponse `json:"hold"`
+	}{
+		Hold: holdResponse{
+			ItemBarcode:   holdReq.ItemBarcode,
+			PickupLibrary: holdReq.PickupLibrary,
+			UserID:        v4Claims.UserID,
+		},
+	}
+
+	c.JSON(http.StatusOK, out)
+}
+
+func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLibrary string) *requestError {
+	log.Printf("INFO: hold request: %+v", holdReq)
+	req := sirsiHoldRequest{
+		Type:         "TITLE",
+		Range:        "GROUP",
+		RecallStatus: "STANDARD",
+		PickupLibrary: sirsiKey{
+			Resource: "/policy/library",
+			Key:      holdReq.PickupLibrary,
+		},
+		ItemBarcode:   holdReq.ItemBarcode,
+		PatronBarcode: patronBarcode,
+		Comment:       holdReq.IlliadTN,
+	}
+	payloadBytes, _ := json.Marshal(req)
+	url := fmt.Sprintf("%s/circulation/holdRecord/placeHold?includeFields=holdRecord{*}", svc.SirsiConfig.WebServicesURL)
+	postReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	svc.setSirsiHeaders(postReq, "PATRON", svc.SirsiSession.SessionToken)
+	postReq.Header.Set("sd-working-libraryid", workLibrary)
+	rawResp, rawErr := svc.HTTPClient.Do(postReq)
+	_, holdErr := handleAPIResponse(url, rawResp, rawErr)
+	if holdErr != nil {
+		return holdErr
+	}
+	log.Printf("INFO: hold placed")
+	return nil
 }
 
 func (svc *serviceContext) fillHold(c *gin.Context) {

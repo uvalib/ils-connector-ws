@@ -238,7 +238,7 @@ type userDetails struct {
 	AmountOwed  string `json:"amountOwed"`
 }
 
-type holdResponse struct {
+type userHoldsResponse struct {
 	Holds []holdDetails `json:"holds"`
 }
 
@@ -585,7 +585,7 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 		holds = append(holds, hold)
 	}
 
-	c.JSON(http.StatusOK, holdResponse{Holds: holds})
+	c.JSON(http.StatusOK, userHoldsResponse{Holds: holds})
 }
 
 func extractAddress(destAddr *userAddress, srcAddressData []sirsiAddressData) {
