@@ -120,7 +120,7 @@ func (ai *availItem) toHoldableItem() holdableItem {
 	if ai.LibraryID != "SPEC-COLL" {
 		cn = strings.Split(ai.CallNumber, " (copy")[0]
 	}
-	return holdableItem{CallNumber: cn, Barcode: ai.Barcode,
+	return holdableItem{Barcode: ai.Barcode,
 		Label: cn, Library: ai.Library,
 		Location: ai.CurrentLocation, LocationID: ai.CurrentLocationID,
 		IsVideo: ai.IsVideo, Notice: ai.Notice}
@@ -144,7 +144,6 @@ type boundWithRec struct {
 }
 
 type holdableItem struct {
-	CallNumber string `json:"call_number"`
 	Barcode    string `json:"barcode"`
 	Label      string `json:"label"`
 	Library    string `json:"library"`
@@ -288,9 +287,7 @@ func (svc *serviceContext) processBoundWithItems(bibResp sirsiBibResponse) []bou
 func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string, items []availItem, marc sirsiBibData) []availRequestOption {
 	out := make([]availRequestOption, 0)
 	holdableItems := make([]holdableItem, 0)
-	medRareHoldable := make([]holdableItem, 0)
 	var atoItem availItem
-	var firstHoldable holdableItem
 
 	for _, item := range items {
 		// track available to order items for later use
@@ -304,44 +301,12 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 			continue
 		}
 
-		// track all medium rare items
+		holdableItem := item.toHoldableItem()
 		if svc.Locations.isMediumRare(item.HomeLocationID) {
-			mrItem := item.toHoldableItem()
-			if mrItem.Notice == svc.Locations.mediumRareMessage() {
-				mrItem.Label += " (Ivy limited circulation)"
-			}
-			medRareHoldable = append(medRareHoldable, mrItem)
+			holdableItem.Label += " (Ivy limited circulation)"
 		}
-
-		// track the first holdable item that is not medium rare; may be used below
-		if svc.Locations.isMediumRare(item.HomeLocationID) == false && firstHoldable.Barcode == "" {
-			firstHoldable = item.toHoldableItem()
-		}
-
-		if item.Volume != "" {
-			if callNumberExists(item.CallNumber, holdableItems) == false {
-				holdableItems = append(holdableItems, item.toHoldableItem())
-			}
-		}
-	}
-
-	//  if no Volume options are present, add the first non-medium rare holdable item
-	if len(holdableItems) == 0 && firstHoldable.Barcode != "" {
-		log.Printf("INFO: no volume ops for %s, adding first holdable %+v", titleID, firstHoldable)
-		holdableItems = append(holdableItems, firstHoldable)
-	}
-
-	// last, add all medium rare items that do not already exist
-	for _, mrItem := range medRareHoldable {
-		exist := false
-		for _, hi := range holdableItems {
-			if hi.Barcode == mrItem.Barcode {
-				exist = true
-				break
-			}
-		}
-		if exist == false {
-			holdableItems = append(holdableItems, mrItem)
+		if holdableExists(item, holdableItems) == false {
+			holdableItems = append(holdableItems, holdableItem)
 		}
 	}
 
@@ -352,33 +317,33 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 			Description: "Request an unavailable item or request delivery.",
 			ItemOptions: holdableItems,
 		})
-	}
 
-	nonVideo := make([]holdableItem, 0)
-	videos := make([]holdableItem, 0)
-	for _, item := range holdableItems {
-		if item.IsVideo == false {
-			nonVideo = append(nonVideo, item)
-		} else {
-			videos = append(videos, item)
+		nonVideo := make([]holdableItem, 0)
+		videos := make([]holdableItem, 0)
+		for _, item := range holdableItems {
+			if item.IsVideo == false {
+				nonVideo = append(nonVideo, item)
+			} else {
+				videos = append(videos, item)
+			}
 		}
-	}
-	if len(nonVideo) > 0 {
-		log.Printf("INFO: add scan options for %s", titleID)
-		out = append(out, availRequestOption{Type: "scan", SignInRequired: true,
-			ButtonLabel: "Request a scan",
-			Description: "Select a portion of this item to be scanned.",
-			ItemOptions: nonVideo,
-		})
-	}
+		if len(nonVideo) > 0 {
+			log.Printf("INFO: add scan options for %s", titleID)
+			out = append(out, availRequestOption{Type: "scan", SignInRequired: true,
+				ButtonLabel: "Request a scan",
+				Description: "Select a portion of this item to be scanned.",
+				ItemOptions: nonVideo,
+			})
+		}
 
-	if len(videos) > 0 {
-		log.Printf("INFO: add video reserve options for %s", titleID)
-		out = append(out, availRequestOption{Type: "videoReserve", SignInRequired: true,
-			ButtonLabel: "Video reserve request",
-			Description: "Request a video reserve for streaming.",
-			ItemOptions: videos,
-		})
+		if len(videos) > 0 {
+			log.Printf("INFO: add video reserve options for %s", titleID)
+			out = append(out, availRequestOption{Type: "videoReserve", SignInRequired: true,
+				ButtonLabel: "Video reserve request",
+				Description: "Request a video reserve for streaming.",
+				ItemOptions: videos,
+			})
+		}
 	}
 
 	if atoItem.CurrentLocationID != "" {
@@ -412,13 +377,20 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 	return out
 }
 
-func callNumberExists(callNum string, holdableItems []holdableItem) bool {
+func holdableExists(item availItem, holdableItems []holdableItem) bool {
 	exist := false
 	for _, hi := range holdableItems {
-		if strings.ToUpper(hi.CallNumber) == strings.ToUpper(callNum) {
+		if strings.ToUpper(hi.Label) == strings.ToUpper(item.CallNumber) || hi.Barcode == item.Barcode {
 			exist = true
 			break
 		}
+	}
+	if exist == false {
+		// NOTES: even if call / barcode is unique, the item may be considered the same if it does not
+		// have any volume info. Ex: u5841451 is a video with 2 unique callnumns:
+		// VIDEO .DVD19571 and KLAUS DVD #1224. Since neiter is a different volume they are considered
+		// the same item from a request persective. Only add the first instance of such items.
+		return item.Volume == "" && len(holdableItems) > 0
 	}
 	return exist
 }
