@@ -10,7 +10,7 @@ import (
 )
 
 // Version of the service
-const version = "0.76.0"
+const version = "0.9.0"
 
 func main() {
 	log.Printf("===> ILS Connector service staring up <===")
@@ -41,9 +41,6 @@ func main() {
 	router.GET("/availability/list", svc.sirsiAuthMiddleware, svc.refreshDataMiddleware, svc.getAvailabilityList)
 	router.GET("/availability/:cat_key", svc.refreshDataMiddleware, svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.getAvailability)
 	// TODO move API from v4-availability-ws here
-
-	// checkouts management
-	router.POST("/checkouts/renew", svc.sirsiAuthMiddleware, svc.renewCheckouts)
 
 	// course reserves management
 	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.validateCourseReserves)
@@ -79,6 +76,7 @@ func main() {
 	router.DELETE("/requests/hold/:id", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.deleteHold)
 	router.POST("/requests/scan", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.createScan)
 	router.POST("/requests/fill_hold/:barcode", svc.sirsiAuthMiddleware, svc.fillHold)
+	router.POST("/requests/renew", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
 
 	portStr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Start service v%s on port %s", version, portStr)
