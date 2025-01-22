@@ -18,9 +18,19 @@ type holdRequest struct {
 }
 
 type holdResponse struct {
-	PickupLibrary string `json:"pickupLibrary"`
-	ItemBarcode   string `json:"itemBarcode"`
-	UserID        string `json:"user_id"`
+	Hold holdResponseData `json:"hold"`
+}
+
+type holdErrorsData struct {
+	Sirsi       []string `json:"sirsi"`
+	ItemBarcode []string `json:"item_barcode"`
+}
+
+type holdResponseData struct {
+	PickupLibrary string          `json:"pickupLibrary"`
+	ItemBarcode   string          `json:"itemBarcode"`
+	UserID        string          `json:"user_id"`
+	Errors        *holdErrorsData `json:"errors,omitempty"`
 }
 
 type sirsiHoldRequest struct {
@@ -60,25 +70,38 @@ func (svc *serviceContext) createHold(c *gin.Context) {
 		c.String(http.StatusUnauthorized, "you are not authorized to request a hold")
 		return
 	}
+
+	out := holdResponse{Hold: holdResponseData{
+		ItemBarcode:   holdReq.ItemBarcode,
+		PickupLibrary: holdReq.PickupLibrary,
+		UserID:        v4Claims.UserID,
+	}}
+
 	holdErr := svc.placeHold(holdReq, v4Claims.Barcode, v4Claims.HomeLibrary)
 	if holdErr != nil {
-		log.Printf("ERROR: place hold %+v failed: %s", holdReq, holdErr.Message)
-		c.String(holdErr.StatusCode, holdErr.Message)
-		return
-	}
-
-	// to client:  {"hold":{"pickup_library":"CLEMONS","item_barcode":"X001167565","user_id":"lf6f"}}
-	out := struct {
-		Hold holdResponse `json:"hold"`
-	}{
-		Hold: holdResponse{
-			ItemBarcode:   holdReq.ItemBarcode,
-			PickupLibrary: holdReq.PickupLibrary,
-			UserID:        v4Claims.UserID,
-		},
+		log.Printf("ERROR: patron %s place hold %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.string())
+		out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
 	}
 
 	c.JSON(http.StatusOK, out)
+}
+
+func getHoldErrorMessages(rawErrors string) *holdErrorsData {
+	errors := holdErrorsData{}
+	var errMessages sirsiMessageList
+	parseErr := json.Unmarshal([]byte(rawErrors), &errMessages)
+	if parseErr != nil {
+		errors.Sirsi = append(errors.Sirsi, parseErr.Error())
+	} else {
+		for _, m := range errMessages.MessageList {
+			if m.Code == "keyParseError" {
+				errors.ItemBarcode = append(errors.ItemBarcode, "Invalid title key")
+			} else {
+				errors.Sirsi = append(errors.Sirsi, m.Message)
+			}
+		}
+	}
+	return &errors
 }
 
 func (svc *serviceContext) deleteHold(c *gin.Context) {
@@ -153,22 +176,18 @@ func (svc *serviceContext) createScan(c *gin.Context) {
 		c.String(http.StatusUnauthorized, "you are not authorized to request a scan")
 		return
 	}
+
+	out := holdResponse{Hold: holdResponseData{
+		ItemBarcode:   holdReq.ItemBarcode,
+		PickupLibrary: holdReq.PickupLibrary,
+		UserID:        v4Claims.UserID,
+	}}
+
 	log.Printf("INFO: scan request: %+v", holdReq)
 	holdErr := svc.placeHold(holdReq, "999999462", "LEO")
 	if holdErr != nil {
-		log.Printf("ERROR: scan request %+v failed: %s", holdReq, holdErr.Message)
-		c.String(holdErr.StatusCode, holdErr.Message)
-		return
-	}
-
-	out := struct {
-		Hold holdResponse `json:"hold"`
-	}{
-		Hold: holdResponse{
-			ItemBarcode:   holdReq.ItemBarcode,
-			PickupLibrary: holdReq.PickupLibrary,
-			UserID:        v4Claims.UserID,
-		},
+		log.Printf("ERROR: patron %s scan request %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.string())
+		out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
 	}
 
 	c.JSON(http.StatusOK, out)
@@ -190,6 +209,7 @@ func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLib
 	}
 	payloadBytes, _ := json.Marshal(req)
 	url := fmt.Sprintf("%s/circulation/holdRecord/placeHold?includeFields=holdRecord{*}", svc.SirsiConfig.WebServicesURL)
+	log.Printf("INFO: post request %s with payload %s", url, payloadBytes)
 	postReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	svc.setSirsiHeaders(postReq, "PATRON", svc.SirsiSession.SessionToken)
 	postReq.Header.Set("sd-working-libraryid", workLibrary)
