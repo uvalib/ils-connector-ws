@@ -175,7 +175,7 @@ func (svc *serviceContext) createScan(c *gin.Context) {
 }
 
 func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLibrary string) *requestError {
-	log.Printf("INFO: hold request: %+v", holdReq)
+	log.Printf("INFO: place patron %s hold request: %+v", patronBarcode, holdReq)
 	req := sirsiHoldRequest{
 		Type:         "TITLE",
 		Range:        "GROUP",
