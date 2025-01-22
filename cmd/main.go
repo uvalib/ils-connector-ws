@@ -78,6 +78,10 @@ func main() {
 	router.POST("/requests/fill_hold/:barcode", svc.sirsiAuthMiddleware, svc.fillHold)
 	router.POST("/requests/renew", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
 
+	// dummy API to map old calls to new for renew. REMOVE WHEN virgo can be updated
+	router.POST("/request/renew", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
+	router.POST("/request/renewall", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
+
 	portStr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Start service v%s on port %s", version, portStr)
 	log.Fatal(router.Run(portStr))
