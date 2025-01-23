@@ -140,7 +140,10 @@ func (svc *serviceContext) sirsiLogin() error {
 		Password: svc.SirsiConfig.Password,
 	}
 	payloadBytes, _ := json.Marshal(payloadOBJ)
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	if reqErr != nil {
+		return fmt.Errorf("unable to create new post request: %s", reqErr.Error())
+	}
 	svc.setSirsiHeaders(req, "STAFF", "")
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)

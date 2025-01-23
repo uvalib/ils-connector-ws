@@ -215,7 +215,12 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	}
 	payloadBytes, _ := json.Marshal(changeReq)
 	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	if reqErr != nil {
+		log.Printf("ERROR: unable o create post request for change password request: %s", reqErr.Error())
+		c.String(http.StatusInternalServerError, reqErr.Error())
+		return
+	}
 	svc.setSirsiHeaders(req, "PATRON", respObj.SessionToken)
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
@@ -286,7 +291,12 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 	}
 	payloadBytes, _ := json.Marshal(data)
 	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	if reqErr != nil {
+		log.Printf("ERROR: unable o create post request for token change password request: %s", reqErr.Error())
+		c.String(http.StatusInternalServerError, reqErr.Error())
+		return
+	}
 	svc.setSirsiHeaders(req, "PATRON", "")
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
