@@ -235,18 +235,26 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 
 // curl -X POST http://localhost:8185/users/C000011111/forgot_password
 func (svc *serviceContext) forgotPassword(c *gin.Context) {
-	computeID := c.Param("compute_id")
-	log.Printf("INFO: user %s forgot password", computeID)
+	var req struct {
+		UserBarcode string `json:"userBarcode"`
+	}
+	qpErr := c.ShouldBindJSON(&req)
+	if qpErr != nil {
+		log.Printf("ERROR: invalid forgot password payload: %v", qpErr)
+		c.String(http.StatusBadRequest, "Invalid request")
+		return
+	}
+	log.Printf("INFO: user %s forgot password", req.UserBarcode)
 	data := struct {
 		Login    string `json:"login"`
 		ResetURL string `json:"resetPinUrl"`
 	}{
-		Login:    computeID,
+		Login:    req.UserBarcode,
 		ResetURL: fmt.Sprintf("%s/signin?token=<RESET_PIN_TOKEN>", svc.VirgoURL),
 	}
 	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/resetMyPin", data)
 	if sirsiErr != nil {
-		log.Printf("ERROR: %s forgot password failed: %s", computeID, sirsiErr.string())
+		log.Printf("ERROR: %s forgot password failed: %s", req.UserBarcode, sirsiErr.string())
 		c.String(sirsiErr.StatusCode, sirsiErr.Message)
 		return
 	}

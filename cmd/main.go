@@ -59,7 +59,7 @@ func main() {
 	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)
 	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword)
 	router.POST("/users/change_password_with_token", svc.sirsiAuthMiddleware, svc.changePasswordWithToken)
-	router.POST("/users/:compute_id/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword)
+	router.POST("/users/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword)
 	router.POST("/users/register", svc.sirsiAuthMiddleware, svc.registerNewUser)
 	router.GET("/users/activate/:token", svc.sirsiAuthMiddleware, svc.activateUser)
 	router.POST("/users/sirsi_staff_login", svc.sirsiAuthMiddleware, svc.staffLogin)
