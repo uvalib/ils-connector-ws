@@ -112,6 +112,23 @@ func intializeService(version string, cfg *serviceConfig) (*serviceContext, erro
 	return &ctx, nil
 }
 
+func (svc *serviceContext) terminateSession() {
+	if svc.SirsiSession.SessionToken != "" && svc.SirsiSession.isExpired() == false {
+		log.Printf("INFO: terminate active sirsi session")
+		empty := struct{}{}
+		_, err := svc.sirsiPost(svc.HTTPClient, "/user/staff/logout", empty)
+		svc.SirsiSession.SessionToken = ""
+		svc.SirsiSession.StaffKey = ""
+		if err != nil {
+			log.Printf("ERROR: unable to end session: %s", err.string())
+		} else {
+			log.Printf("INFO: sirsi session ended")
+		}
+	} else {
+		log.Printf("INFO: no active sirsi session; ok to terminate")
+	}
+}
+
 func (svc *serviceContext) sirsiLogin() error {
 	log.Printf("INFO: attempting sirsi login...")
 	startTime := time.Now()

@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
@@ -47,8 +50,8 @@ func main() {
 	// TODO move search and other reserves functionality from avail service here
 
 	// dibs management
-	router.PUT("/dibs/indibs/:barcode", svc.sirsiAuthMiddleware, svc.setBarcodeInDiBS)
-	router.PUT("/dibs/nodibs/:barcode", svc.sirsiAuthMiddleware, svc.setBarcodeNotInDiBS)
+	router.PUT("/dibs/indibs/:barcode", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.setBarcodeInDiBS)
+	router.PUT("/dibs/nodibs/:barcode", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.setBarcodeNotInDiBS)
 	router.POST("/dibs/checkin", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.checkinDiBS)
 	router.POST("/dibs/checkout", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.checkoutDiBS)
 
@@ -81,6 +84,18 @@ func main() {
 	// dummy API to map old calls to new for renew. REMOVE WHEN virgo can be updated
 	router.POST("/request/renew", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
 	router.POST("/request/renewall", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
+
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc,
+		syscall.SIGTERM,
+		syscall.SIGINT,
+	)
+	go func() {
+		s := <-sigc
+		log.Printf("INFO: caught %s ", s)
+		svc.terminateSession()
+		os.Exit(0)
+	}()
 
 	portStr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Start service v%s on port %s", version, portStr)
