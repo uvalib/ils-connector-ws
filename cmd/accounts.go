@@ -166,9 +166,9 @@ func (svc *serviceContext) checkBarcodePassword(computeID, pass string) *request
 //	  --data '{"computeID": "C000011111", "currPassword": "PASS!", "newPassword": "NEW"}'
 func (svc *serviceContext) changePassword(c *gin.Context) {
 	var passReq struct {
-		CurrPass  string `json:"currPassword"`
-		NewPass   string `json:"newPassword"`
-		ComputeID string `json:"computeID"`
+		CurrPin   string `json:"current_pin"`
+		NewPin    string `json:"new_pin"`
+		ComputeID string `json:"barcode"`
 	}
 	err := c.ShouldBindJSON(&passReq)
 	if err != nil {
@@ -183,7 +183,7 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 		Password string `json:"password"`
 	}{
 		Login:    passReq.ComputeID,
-		Password: passReq.CurrPass,
+		Password: passReq.CurrPin,
 	}
 
 	loginResp, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/login", loginReq)
@@ -210,8 +210,8 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 		NewPass  string `json:"newPin"`
 		CurrPass string `json:"currentPin"`
 	}{
-		NewPass:  passReq.NewPass,
-		CurrPass: passReq.CurrPass,
+		NewPass:  passReq.NewPin,
+		CurrPass: passReq.CurrPin,
 	}
 	payloadBytes, _ := json.Marshal(changeReq)
 	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)

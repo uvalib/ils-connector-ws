@@ -57,7 +57,7 @@ func main() {
 
 	// account management
 	router.POST("/users/:id/check_pin", svc.sirsiAuthMiddleware, svc.checkPassword)
-	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword)
+	router.POST("/users/:id/change_pin", svc.sirsiAuthMiddleware, svc.changePassword)
 	router.POST("/users/change_password_with_token", svc.sirsiAuthMiddleware, svc.changePasswordWithToken)
 	router.POST("/users/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword)
 	router.POST("/users/register", svc.sirsiAuthMiddleware, svc.registerNewUser)
