@@ -99,10 +99,10 @@ func (a tmpAccount) MarshalJSON() ([]byte, error) {
 //	curl --request POST  \
 //	  --url http://localhost:8185/users/check_password \
 //	  --header 'Content-Type: application/json' \
-//	  --data '{"computeID": "C000011111", "password": "PASS"}'
+//	  --data '{"barcode": "C000011111", "password": "PASS"}'
 func (svc *serviceContext) checkPassword(c *gin.Context) {
 	var passReq struct {
-		ComputeID string `json:"computeID"`
+		ComputeID string `json:"barcode"`
 		Password  string `json:"password"`
 	}
 	err := c.ShouldBindJSON(&passReq)
@@ -264,11 +264,11 @@ func (svc *serviceContext) forgotPassword(c *gin.Context) {
 //	curl --request POST  \
 //		--url http://localhost:8185/users/change_password_with_token \
 //		--header 'Content-Type: application/json' \
-//		--data '{"token": "7bbaN2fr1WDWueRLpq8bB8npsow4mJ8iK7ilXlAP64zq6g1jvZ", "password": "PASS"}'
+//		--data '{"reset_password_token": "7bbaN2fr1WDWueRLpq8bB8npsow4mJ8iK7ilXlAP64zq6g1jvZ", "new_password": "PASS"}'
 func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 	var qp struct {
-		Token   string `json:"token"`
-		NewPass string `json:"password"`
+		Token   string `json:"reset_password_token"`
+		NewPass string `json:"new_password"`
 	}
 	qpErr := c.ShouldBindJSON(&qp)
 	if qpErr != nil {
