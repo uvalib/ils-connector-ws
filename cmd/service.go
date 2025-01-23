@@ -139,13 +139,19 @@ func (svc *serviceContext) sirsiLogin() error {
 		Login:    svc.SirsiConfig.User,
 		Password: svc.SirsiConfig.Password,
 	}
+	cut := fmt.Sprintf("%s***", payloadOBJ.Password[0:4])
+	log.Printf("INFO: login user %s, partial pass: %s", payloadOBJ.Login, cut)
 	payloadBytes, _ := json.Marshal(payloadOBJ)
 	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	if reqErr != nil {
 		return fmt.Errorf("unable to create new post request: %s", reqErr.Error())
 	}
 	svc.setSirsiHeaders(req, "STAFF", "")
+	log.Printf("INFO: login headers %+v", req.Header)
 	rawResp, rawErr := svc.HTTPClient.Do(req)
+	if rawErr != nil {
+		log.Printf("ERROR: login failed; raw error: %s", rawErr.Error())
+	}
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
