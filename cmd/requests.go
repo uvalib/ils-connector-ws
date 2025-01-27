@@ -221,8 +221,3 @@ func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLib
 	log.Printf("INFO: hold placed")
 	return nil
 }
-
-func (svc *serviceContext) fillHold(c *gin.Context) {
-	// TODO
-	c.String(http.StatusNotImplemented, "not implemented")
-}

@@ -65,7 +65,6 @@ func main() {
 	router.POST("/users/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword)
 	router.POST("/users/register", svc.sirsiAuthMiddleware, svc.registerNewUser)
 	router.GET("/users/activate/:token", svc.sirsiAuthMiddleware, svc.activateUser)
-	router.POST("/users/sirsi_staff_login", svc.sirsiAuthMiddleware, svc.staffLogin)
 
 	// user data
 	router.GET("/users/:compute_id", svc.sirsiAuthMiddleware, svc.getUserInfo)
@@ -78,7 +77,6 @@ func main() {
 	router.POST("/requests/hold", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.createHold)
 	router.DELETE("/requests/hold/:id", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.deleteHold)
 	router.POST("/requests/scan", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.createScan)
-	router.POST("/requests/fill_hold/:barcode", svc.sirsiAuthMiddleware, svc.fillHold)
 	router.POST("/requests/renew", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
 
 	// dummy API to map old calls to new for renew. REMOVE WHEN virgo can be updated
