@@ -333,68 +333,32 @@ func (svc *serviceContext) checkoutDiBS(c *gin.Context) {
 		},
 	}
 	payloadBytes, _ := json.Marshal(coReq)
-	log.Printf("INFO: checkout payload: %s", payloadBytes)
-
-	// allow 5 attempts at setting the checkout status. overrides may be neded to get
-	// the request through. these are included in the error response and must be
-	// added to the header in each attempt
-	// X032744384 requires an override
-	attempt := 0
-	checkedOut := false
-	var lastErr *requestError
-	returnHeaders := make([]string, 0)
 	url := fmt.Sprintf("%s/circulation/circRecord/checkOut?includeFields={*}", svc.SirsiConfig.WebServicesURL)
-	for attempt < 5 {
-		attempt++
-		sirsiReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-		svc.setSirsiHeaders(sirsiReq, "STAFF", svc.SirsiSession.SessionToken)
-		sirsiReq.Header.Set("x-sirs-clientID", "DIBS-PATRN")
-		sirsiReq.Header.Set("sd-working-libraryid", "UVA-LIB")
-		for _, hdr := range returnHeaders {
-			log.Printf("INFO: add %s to SD-Prompt-Return", hdr)
-			sirsiReq.Header.Add("SD-Prompt-Return", hdr)
-		}
-
-		log.Printf("INFO: request attempt #%d with header [%s]", attempt, sirsiReq.Header.Get("SD-Prompt-Return"))
-		rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
-		coResp, coErr := handleAPIResponse(url, rawResp, rawErr)
-		if coErr != nil {
-			log.Printf("INFO: checkout request failed: %s", coErr.string())
-			lastErr = coErr
-			var errInfo sirsiCheckoutError
-			json.Unmarshal([]byte(coErr.Message), &errInfo)
-			if errInfo.DataMap.PromptType != "" {
-				// add the override header and try again
-				newHeader := fmt.Sprintf("%s/DIBSDIBS", errInfo.DataMap.PromptType)
-				log.Printf("INFO: add override %s", newHeader)
-				returnHeaders = append(returnHeaders, newHeader)
-				log.Printf("INFO: resulting headers list: %v", returnHeaders)
-			} else {
-				log.Printf("INFO: checkout failed with no override data; done")
-				break
-			}
-		} else {
-			log.Printf("INFO: %s was checked out; %s", req.Barcode, coResp)
-			checkedOut = true
-			break
-		}
-	}
-	if checkedOut == false {
-		log.Printf("INFO: unable to checkout item: %s", lastErr.string())
+	log.Printf("INFO: checkout url: %s,  payload: %s", url, payloadBytes)
+	sirsiReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	svc.setSirsiHeaders(sirsiReq, "STAFF", svc.SirsiSession.SessionToken)
+	sirsiReq.Header.Set("x-sirs-clientID", "DIBS-PATRN")
+	sirsiReq.Header.Set("sd-working-libraryid", "UVA-LIB")
+	sirsiReq.Header.Set("SD-Prompt-Return", "CIRC_NONCHARGEABLE_OVRCD/DIBSDIBS")
+	rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
+	coResp, coErr := handleAPIResponse(url, rawResp, rawErr)
+	if coErr != nil {
+		log.Printf("INFO: checkout request failed: %s", coErr.string())
 		var msgs sirsiMessageList
-		err := json.Unmarshal([]byte(lastErr.Message), &msgs)
+		err := json.Unmarshal([]byte(coErr.Message), &msgs)
 		if err != nil {
-			c.String(lastErr.StatusCode, lastErr.Message)
+			c.String(http.StatusInternalServerError, coErr.string())
 		} else {
 			outErr := struct {
 				Errors []sirsiMessage `json:"errors"`
 			}{
 				Errors: msgs.MessageList,
 			}
-			c.JSON(lastErr.StatusCode, outErr)
+			c.JSON(coErr.StatusCode, outErr)
 		}
 		return
 	}
+	log.Printf("INFO: %s was checked out; %s", req.Barcode, coResp)
 	c.String(http.StatusOK, "ok")
 }
 
