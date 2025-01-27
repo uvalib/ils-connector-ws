@@ -41,11 +41,13 @@ type sirsiDescription struct {
 	Description string `json:"description"`
 }
 
+type sirsiMessage struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type sirsiMessageList struct {
-	MessageList []struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"messageList"`
+	MessageList []sirsiMessage `json:"messageList"`
 }
 
 type sirsiSessionData struct {
@@ -336,6 +338,9 @@ func mintBasicJWT(secret string) (string, error) {
 }
 
 func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *requestError) {
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
 	if err != nil {
 		status := http.StatusBadRequest
 		errMsg := err.Error()
@@ -348,15 +353,11 @@ func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *
 		}
 		return nil, &requestError{StatusCode: status, Message: errMsg}
 	} else if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		defer resp.Body.Close()
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		status := resp.StatusCode
 		errMsg := string(bodyBytes)
 		return nil, &requestError{StatusCode: status, Message: errMsg}
 	}
 
-	defer resp.Body.Close()
-	bodyBytes, _ := io.ReadAll(resp.Body)
 	return bodyBytes, nil
 }
 

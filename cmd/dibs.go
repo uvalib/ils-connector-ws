@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -63,9 +64,56 @@ type sirsiItemInfo struct {
 	} `json:"fields"`
 }
 
+type dibsUserCheckouts struct {
+	Fields struct {
+		Barcode        string `json:"barcode"`
+		CircRecordList []struct {
+			Key    string `json:"key"`
+			Fields struct {
+				Item struct {
+					Key    string `json:"key"`
+					Fields struct {
+						Barcode string `json:"barcode"`
+					} `json:"fields"`
+				} `json:"item"`
+				Library sirsiKey `json:"library"`
+			} `json:"fields"`
+		} `json:"circRecordList"`
+	} `json:"fields"`
+}
+
+// for checkIn and checkOut when response code is 400
+type sirsiCheckoutError struct {
+	MessageList []struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"messageList"`
+	DescribeURI    string `json:"describeUri"`
+	PromptRequired bool   `json:"promptRequired"`
+	DataMap        struct {
+		PromptType         string `json:"promptType"`
+		RecommendedAction  string `json:"recommendedAction"`
+		PromptRequiresData bool   `json:"promptRequiresData"`
+		PromptDataType     string `json:"promptDataType"`
+	} `json:"dataMap"`
+}
+
 type dibsData struct {
 	HomeLocation sirsiKey `json:"homeLocation"`
 	ItemType     sirsiKey `json:"itemType"`
+}
+
+type dibsItemRequest struct {
+	Duration string `json:"duration"`
+	UserID   string `json:"user_id"`
+	Barcode  string `json:"barcode"`
+}
+
+type dibsCheckoutInfo struct {
+	UserBarcode string
+	ItemBarcode string
+	CheckedOut  bool
+	LibraryID   string
 }
 
 const dibsLocationKey = "DIBS"
@@ -117,7 +165,7 @@ func (svc *serviceContext) setBarcodeInDiBS(c *gin.Context) {
 	item.Fields.HomeLocation.Key = dibsLocationKey
 	item.Fields.ItemType.Key = dibsLocationKey
 	item.Fields.CustomInformation = append(item.Fields.CustomInformation, dibsCustom)
-	putSrr := svc.sirsiDiBSPut(item.Key, item)
+	putSrr := svc.sirsiUpdateDiBSStatus(item.Key, item)
 	if putSrr != nil {
 		log.Printf("ERROR: add to dibs failed: %s", putSrr.string())
 		c.String(putSrr.StatusCode, putSrr.Message)
@@ -155,7 +203,7 @@ func (svc *serviceContext) setBarcodeNotInDiBS(c *gin.Context) {
 	}
 	item.Fields.CustomInformation = newCI
 
-	putSrr := svc.sirsiDiBSPut(item.Key, item)
+	putSrr := svc.sirsiUpdateDiBSStatus(item.Key, item)
 	if putSrr != nil {
 		log.Printf("ERROR: remove from dibs failed: %s", putSrr.string())
 		c.String(putSrr.StatusCode, putSrr.Message)
@@ -166,21 +214,195 @@ func (svc *serviceContext) setBarcodeNotInDiBS(c *gin.Context) {
 }
 
 func (svc *serviceContext) checkinDiBS(c *gin.Context) {
-	// TODO
-	c.String(http.StatusNotImplemented, "nope")
+	var req struct {
+		Barcode string `json:"barcode"`
+	}
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
+		log.Printf("INFO: unable to parse dibs checkin request: %s", err.Error())
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	v4Claims, claimErr := getVirgoClaims(c)
+	if claimErr != nil {
+		c.String(http.StatusUnauthorized, "you are not authorized to issue a dibs checkout request")
+		return
+	}
+	log.Printf("INFO: user %s requests dibs checkin of %s", v4Claims.UserID, req.Barcode)
+
+	// ensure item is checked out
+	info, valErr := svc.getDiBSCheckoutInfo(v4Claims.UserID, req.Barcode)
+	if valErr != nil {
+		log.Printf("INFO: unable to validate %s dibs checkin request: %s", v4Claims.UserID, valErr.Error())
+		c.String(http.StatusBadRequest, valErr.Error())
+		return
+	}
+
+	if info.CheckedOut == false {
+		log.Printf("INFO: %s requests dibs checkin and item is not checked out", v4Claims.UserID)
+		c.String(http.StatusOK, "ok")
+		return
+	}
+
+	// NOTES: dont loop the checkin attempt.. just do it 1x and fail with logs
+	ciReq := struct {
+		ItemBarcode string `json:"itemBarcode"`
+	}{
+		ItemBarcode: req.Barcode,
+	}
+	payloadBytes, _ := json.Marshal(ciReq)
+	url := fmt.Sprintf("%s/circulation/circRecord/checkIn?includeFields={*}", svc.SirsiConfig.WebServicesURL)
+	sirsiReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	svc.setSirsiHeaders(sirsiReq, "STAFF", svc.SirsiSession.SessionToken)
+	sirsiReq.Header.Set("x-sirs-clientID", "DIBS-PATRN")
+	sirsiReq.Header.Set("sd-working-libraryid", "UVA-LIB")
+	sirsiReq.Header.Set("SD-Prompt-Return", "")
+	rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
+	_, ciErr := handleAPIResponse(url, rawResp, rawErr)
+	if ciErr != nil {
+		var msgs sirsiMessageList
+		err := json.Unmarshal([]byte(ciErr.Message), &msgs)
+		if err != nil {
+			c.String(http.StatusInternalServerError, ciErr.string())
+		} else {
+			outErr := struct {
+				Errors []sirsiMessage `json:"errors"`
+			}{
+				Errors: msgs.MessageList,
+			}
+			c.JSON(ciErr.StatusCode, outErr)
+		}
+		return
+	}
+
+	c.String(http.StatusOK, "ok")
 }
 
+// paload from dibs/lsp.py: f'{{"duration": "{duration}", "user_id" : "{username}", "barcode" : "{barcode}"}}'
 func (svc *serviceContext) checkoutDiBS(c *gin.Context) {
-	// TODO
-	c.String(http.StatusNotImplemented, "nope")
+	var req dibsItemRequest
+	err := c.ShouldBindJSON(&req)
+	if err != nil {
+		log.Printf("INFO: unable to parse dibs checkout request: %s", err.Error())
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+	v4Claims, claimErr := getVirgoClaims(c)
+	if claimErr != nil {
+		c.String(http.StatusUnauthorized, "you are not authorized to issue a dibs checkout request")
+		return
+	}
+	durationHr, timeErr := strconv.ParseInt(req.Duration, 10, 64)
+	if timeErr != nil {
+		log.Printf("ERROR: invalid duration passed to dibs checkout request %+v: %s", req, timeErr.Error())
+		c.String(http.StatusBadRequest, "invalid duration")
+		return
+	}
+	dueDate := time.Now().Local()
+	dueDate = dueDate.Add(time.Duration(durationHr) * time.Hour)
+	iso8601Due := dueDate.Format(time.RFC3339) // all other formats fail validation
+
+	log.Printf("INFO: user %s requests dibs checkout of %s for %s hours", v4Claims.UserID, req.Barcode, req.Duration)
+	info, valErr := svc.getDiBSCheckoutInfo(v4Claims.UserID, req.Barcode)
+	if valErr != nil {
+		log.Printf("INFO: unable to validate %s dibs checkout request: %s", v4Claims.UserID, valErr.Error())
+		c.String(http.StatusBadRequest, valErr.Error())
+		return
+	}
+
+	// already checked out, nothing to do
+	if info.CheckedOut == true {
+		log.Printf("INFO: %s requests dibs checkout and item is already checked out", v4Claims.UserID)
+		c.String(http.StatusOK, "ok")
+		return
+	}
+
+	coReq := struct {
+		ItemBarcode       string   `json:"itemBarcode"`
+		PatronBarcode     string   `json:"patronBarcode"`
+		DueDate           string   `json:"dueDate"`
+		ReserveCollection sirsiKey `json:"reserveCollection"`
+	}{
+		ItemBarcode:   info.ItemBarcode,
+		PatronBarcode: info.UserBarcode,
+		DueDate:       iso8601Due,
+		ReserveCollection: sirsiKey{
+			Resource: "/policy/reserveCollection",
+			Key:      "DIBS-E-RES",
+		},
+	}
+	payloadBytes, _ := json.Marshal(coReq)
+	log.Printf("INFO: checkout payload: %s", payloadBytes)
+
+	// allow 5 attempts at setting the checkout status. overrides may be neded to get
+	// the request through. these are included in the error response and must be
+	// added to the header in each attempt
+	// X032744384 requires an override
+	attempt := 0
+	checkedOut := false
+	var lastErr *requestError
+	returnHeaders := make([]string, 0)
+	url := fmt.Sprintf("%s/circulation/circRecord/checkOut?includeFields={*}", svc.SirsiConfig.WebServicesURL)
+	for attempt < 5 {
+		attempt++
+		sirsiReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+		svc.setSirsiHeaders(sirsiReq, "STAFF", svc.SirsiSession.SessionToken)
+		sirsiReq.Header.Set("x-sirs-clientID", "DIBS-PATRN")
+		sirsiReq.Header.Set("sd-working-libraryid", "UVA-LIB")
+		for _, hdr := range returnHeaders {
+			log.Printf("INFO: add %s to SD-Prompt-Return", hdr)
+			sirsiReq.Header.Add("SD-Prompt-Return", hdr)
+		}
+
+		log.Printf("INFO: request attempt #%d with header [%s]", attempt, sirsiReq.Header.Get("SD-Prompt-Return"))
+		rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
+		coResp, coErr := handleAPIResponse(url, rawResp, rawErr)
+		if coErr != nil {
+			log.Printf("INFO: checkout request failed: %s", coErr.string())
+			lastErr = coErr
+			var errInfo sirsiCheckoutError
+			json.Unmarshal([]byte(coErr.Message), &errInfo)
+			if errInfo.DataMap.PromptType != "" {
+				// add the override header and try again
+				newHeader := fmt.Sprintf("%s/DIBSDIBS", errInfo.DataMap.PromptType)
+				log.Printf("INFO: add override %s", newHeader)
+				returnHeaders = append(returnHeaders, newHeader)
+				log.Printf("INFO: resulting headers list: %v", returnHeaders)
+			} else {
+				log.Printf("INFO: checkout failed with no override data; done")
+				break
+			}
+		} else {
+			log.Printf("INFO: %s was checked out; %s", req.Barcode, coResp)
+			checkedOut = true
+			break
+		}
+	}
+	if checkedOut == false {
+		log.Printf("INFO: unable to checkout item: %s", lastErr.string())
+		var msgs sirsiMessageList
+		err := json.Unmarshal([]byte(lastErr.Message), &msgs)
+		if err != nil {
+			c.String(lastErr.StatusCode, lastErr.Message)
+		} else {
+			outErr := struct {
+				Errors []sirsiMessage `json:"errors"`
+			}{
+				Errors: msgs.MessageList,
+			}
+			c.JSON(lastErr.StatusCode, outErr)
+		}
+		return
+	}
+	c.String(http.StatusOK, "ok")
 }
 
-func (svc *serviceContext) sirsiDiBSPut(itemKey string, data interface{}) *requestError {
+func (svc *serviceContext) sirsiUpdateDiBSStatus(itemKey string, data interface{}) *requestError {
 	url := fmt.Sprintf("%s/catalog/item/key/%s", svc.SirsiConfig.WebServicesURL, itemKey)
-	log.Printf("INFO: sirsi dibs put request: %s", url)
+	log.Printf("INFO: sirsi dibs update status request: %s", url)
 	startTime := time.Now()
 	b, _ := json.Marshal(data)
-	log.Printf("PUT PAYLOAD: %s", b)
 	req, _ := http.NewRequest("PUT", url, bytes.NewBuffer(b))
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
 	req.Header.Set("x-sirs-clientID", "DIBS-STAFF")
@@ -192,6 +414,31 @@ func (svc *serviceContext) sirsiDiBSPut(itemKey string, data interface{}) *reque
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
 	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
 	return err
+}
+
+func (svc *serviceContext) getDiBSCheckoutInfo(computeID, barcode string) (*dibsCheckoutInfo, error) {
+	fields := "barcode,circRecordList{library,item{barcode}}"
+	url := fmt.Sprintf("/user/patron/alternateID/%s?i&includeFields=%s", computeID, fields)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
+	if sirsiErr != nil {
+		return nil, fmt.Errorf("unable to get %s checkouts: %s", computeID, sirsiErr.string())
+	}
+	var userCheckouts dibsUserCheckouts
+	parseErr := json.Unmarshal(sirsiRaw, &userCheckouts)
+	if parseErr != nil {
+		return nil, fmt.Errorf("unable to parse user checkouts response for %s: %s", computeID, parseErr.Error())
+	}
+
+	out := dibsCheckoutInfo{UserBarcode: userCheckouts.Fields.Barcode, ItemBarcode: barcode}
+	for _, cr := range userCheckouts.Fields.CircRecordList {
+		if cr.Fields.Item.Fields.Barcode == barcode {
+			out.LibraryID = cr.Fields.Library.Key
+			out.CheckedOut = true
+			break
+		}
+	}
+
+	return &out, nil
 }
 
 func (svc *serviceContext) getDiBSItemInfo(barcode string) (*sirsiItemInfo, error) {
