@@ -338,9 +338,6 @@ func mintBasicJWT(secret string) (string, error) {
 }
 
 func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *requestError) {
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-
 	if err != nil {
 		status := http.StatusBadRequest
 		errMsg := err.Error()
@@ -352,7 +349,12 @@ func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *
 			errMsg = fmt.Sprintf("%s refused connection", tgtURL)
 		}
 		return nil, &requestError{StatusCode: status, Message: errMsg}
-	} else if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		status := resp.StatusCode
 		errMsg := string(bodyBytes)
 		return nil, &requestError{StatusCode: status, Message: errMsg}
