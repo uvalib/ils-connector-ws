@@ -1,7 +1,7 @@
 #
 # build the target application
 #
-FROM public.ecr.aws/docker/library/golang:1.23.4-alpine3.21 AS builder
+FROM public.ecr.aws/docker/library/golang:1.23.5-alpine3.21 AS builder
 
 # update the packages
 RUN apk update && apk upgrade && apk add --no-cache make
@@ -18,7 +18,7 @@ RUN make linux
 FROM public.ecr.aws/docker/library/alpine:3.21
 
 # update the packages
-RUN apk update && apk upgrade && apk add bash tzdata ca-certificates && rm -rf /var/cache/apk/*
+RUN apk update && apk upgrade && apk add bash tzdata ca-certificates curl && rm -rf /var/cache/apk/*
 
 # Create the run user and group
 RUN addgroup webservice && adduser webservice -G webservice -D
@@ -44,7 +44,6 @@ COPY package/data/container_bash_profile /home/webservice/.profile
 COPY package/scripts/entry.sh ${APP_HOME}/scripts/entry.sh
 COPY data/* ${APP_HOME}/bin/data/
 COPY --from=builder /build/bin/ils-connector-ws.linux ${APP_HOME}/bin/ils-connector-ws
-
 
 # Ensure permissions are correct
 RUN chown webservice:webservice /home/webservice/.profile ${APP_HOME}/scripts/entry.sh ${APP_HOME}/bin/ils-connector-ws ${APP_HOME}/bin/data && chmod 755 /home/webservice/.profile ${APP_HOME}/scripts/entry.sh ${APP_HOME}/bin/ils-connector-ws ${APP_HOME}/bin/data
