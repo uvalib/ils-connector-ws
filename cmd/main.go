@@ -79,6 +79,10 @@ func main() {
 	router.POST("/requests/scan", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.createScan)
 	router.POST("/requests/renew", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
 
+	// used by leo hold filler (or tedium reducer): barcode scanning
+	router.POST("/users/sirsi_staff_login", svc.sirsiAuthMiddleware, svc.staffLogin)
+	router.POST("/requests/fill_hold/:barcode", svc.sirsiAuthMiddleware, svc.fillHold)
+
 	// dummy API to map old calls to new for renew. REMOVE WHEN virgo can be updated
 	router.POST("/request/renew", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)
 	router.POST("/request/renewall", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.renewCheckouts)

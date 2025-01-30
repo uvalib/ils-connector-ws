@@ -82,22 +82,6 @@ type dibsUserCheckouts struct {
 	} `json:"fields"`
 }
 
-// for checkIn and checkOut when response code is 400
-type sirsiCheckoutError struct {
-	MessageList []struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"messageList"`
-	DescribeURI    string `json:"describeUri"`
-	PromptRequired bool   `json:"promptRequired"`
-	DataMap        struct {
-		PromptType         string `json:"promptType"`
-		RecommendedAction  string `json:"recommendedAction"`
-		PromptRequiresData bool   `json:"promptRequiresData"`
-		PromptDataType     string `json:"promptDataType"`
-	} `json:"dataMap"`
-}
-
 type dibsData struct {
 	HomeLocation sirsiKey `json:"homeLocation"`
 	ItemType     sirsiKey `json:"itemType"`
@@ -333,33 +317,93 @@ func (svc *serviceContext) checkoutDiBS(c *gin.Context) {
 		},
 	}
 	payloadBytes, _ := json.Marshal(coReq)
-	url := fmt.Sprintf("%s/circulation/circRecord/checkOut?includeFields={*}", svc.SirsiConfig.WebServicesURL)
-	log.Printf("INFO: checkout url: %s,  payload: %s", url, payloadBytes)
-	sirsiReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	svc.setSirsiHeaders(sirsiReq, "STAFF", svc.SirsiSession.SessionToken)
-	sirsiReq.Header.Set("x-sirs-clientID", "DIBS-PATRN")
-	sirsiReq.Header.Set("sd-working-libraryid", "UVA-LIB")
-	sirsiReq.Header.Set("SD-Prompt-Return", "CIRC_NONCHARGEABLE_OVRCD/DIBSDIBS")
-	rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
-	coResp, coErr := handleAPIResponse(url, rawResp, rawErr)
-	if coErr != nil {
-		log.Printf("INFO: checkout request failed: %s", coErr.string())
-		var msgs sirsiMessageList
-		err := json.Unmarshal([]byte(coErr.Message), &msgs)
+	uri := "/circulation/circRecord/checkOut?includeFields={*}"
+	overrides := []string{"CIRC_NONCHARGEABLE_OVRCD/DIBSDIBS"}
+	headers := make(map[string]string)
+	headers["x-sirs-clientID"] = "DIBS-PATRN"
+	headers["sd-working-libraryid"] = "UVA-LIB"
+	log.Printf("INFO: checkout payload: %s", payloadBytes)
+
+	_, sirsiErr := svc.retrySirsiRequest(uri, payloadBytes, headers, overrides, "DIBSDIBS")
+	if sirsiErr != nil {
+		log.Printf("ERROR: dibs checkout failed: %s", sirsiErr.string())
+		var parsedErr sirsiError
+		err := json.Unmarshal([]byte(sirsiErr.Message), &parsedErr)
 		if err != nil {
-			c.String(http.StatusInternalServerError, coErr.string())
+			c.String(sirsiErr.StatusCode, sirsiErr.Message)
 		} else {
 			outErr := struct {
 				Errors []sirsiMessage `json:"errors"`
 			}{
-				Errors: msgs.MessageList,
+				Errors: parsedErr.MessageList,
 			}
-			c.JSON(coErr.StatusCode, outErr)
+			c.JSON(sirsiErr.StatusCode, outErr)
 		}
 		return
 	}
-	log.Printf("INFO: %s was checked out; %s", req.Barcode, coResp)
+	log.Printf("INFO: dibs checkout %s success", req.Barcode)
 	c.String(http.StatusOK, "ok")
+}
+
+// this will retry the given request and payload. each try will add overrides to SD-Prompt-Return
+func (svc *serviceContext) retrySirsiRequest(uri string, payload []byte, headers map[string]string, overrides []string, overridePosifix string) ([]byte, *requestError) {
+	log.Printf("INFO: retry sirsi request %s and apply override headers each attempt", uri)
+	attempt := 0
+	success := false
+	var lastErr *requestError
+	var lastResp []byte
+	headerOverrides := make([]string, 0)
+	for _, o := range overrides {
+		headerOverrides = append(headerOverrides, o)
+	}
+	url := fmt.Sprintf("%s/%s", svc.SirsiConfig.WebServicesURL, uri)
+	for attempt < 5 {
+		attempt++
+		sirsiReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+		svc.setSirsiHeaders(sirsiReq, "STAFF", svc.SirsiSession.SessionToken)
+		for hdr, val := range headers {
+			// add all standard headers passed; x-sirs-sessionToken, x-sirs-clientID, etc
+			sirsiReq.Header.Set(hdr, val)
+		}
+		for _, hdr := range headerOverrides {
+			// now add any override headers
+			log.Printf("INFO: add %s to SD-Prompt-Return", hdr)
+			sirsiReq.Header.Add("SD-Prompt-Return", hdr)
+		}
+
+		log.Printf("INFO: request attempt #%d with headers [%v]", attempt, sirsiReq.Header)
+		rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
+		sirsiResp, sirsiErr := handleAPIResponse(url, rawResp, rawErr)
+		lastResp = sirsiResp
+		lastErr = sirsiErr
+		if sirsiErr != nil {
+			log.Printf("INFO: request failed: %s", sirsiErr.string())
+			var errInfo sirsiError
+			json.Unmarshal([]byte(sirsiErr.Message), &errInfo)
+			if errInfo.DataMap.PromptType != "" {
+				newHeader := errInfo.DataMap.PromptType
+				if overridePosifix != "" {
+					newHeader += fmt.Sprintf("/%s", overridePosifix)
+				}
+				log.Printf("INFO: add override %s", newHeader)
+				headerOverrides = append(headerOverrides, newHeader)
+			} else {
+				log.Printf("INFO: checkout failed with no override data; done")
+				break
+			}
+		} else {
+			log.Printf("INFO: %s succeeded", url)
+			success = true
+			break
+		}
+	}
+
+	if success == false {
+		log.Printf("INFO: %s failed after %d attempts: %s", uri, attempt, lastErr.string())
+		return lastResp, lastErr
+	}
+
+	return lastResp, nil
 }
 
 func (svc *serviceContext) sirsiUpdateDiBSStatus(itemKey string, data interface{}) *requestError {

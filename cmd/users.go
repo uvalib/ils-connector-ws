@@ -305,7 +305,7 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 		log.Printf("INFO: user %s not found in user-ws; flagging as community user", computeID)
 		user.CommunityUser = true
 	} else {
-		log.Printf("INFO: parse user-ews response [%s]", raw)
+		log.Printf("INFO: parse user-ws response [%s]", raw)
 		var userResp userInfoRespData
 		err := json.Unmarshal(raw, &userResp)
 		if err != nil {

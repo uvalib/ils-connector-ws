@@ -50,6 +50,18 @@ type sirsiMessageList struct {
 	MessageList []sirsiMessage `json:"messageList"`
 }
 
+type sirsiError struct {
+	MessageList    []sirsiMessage `json:"messageList"`
+	DescribeURI    string         `json:"describeUri"`
+	PromptRequired bool           `json:"promptRequired"`
+	DataMap        struct {
+		PromptType         string `json:"promptType"`
+		RecommendedAction  string `json:"recommendedAction"`
+		PromptRequiresData bool   `json:"promptRequiresData"`
+		PromptDataType     string `json:"promptDataType"`
+	} `json:"dataMap"`
+}
+
 type sirsiSessionData struct {
 	StaffKey     string
 	SessionToken string
