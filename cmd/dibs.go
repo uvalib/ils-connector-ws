@@ -417,10 +417,10 @@ func (svc *serviceContext) sirsiUpdateDiBSStatus(itemKey string, data interface{
 	req.Header.Set("SD-Prompt-Return", "")
 	rawResp, rawErr := svc.HTTPClient.Do(req)
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
-	log.Printf("INFO: sirsi dibs put response: %s", resp)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	log.Printf("INFO: sirsi response: %s", resp)
+	log.Printf("INFO: sirsi request processed in %d (ms)", elapsedMS)
 	return err
 }
 

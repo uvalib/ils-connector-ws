@@ -265,7 +265,8 @@ func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *reque
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	log.Printf("INFO: get response: %s", resp)
+	log.Printf("INFO: request processed in %d (ms)", elapsedMS)
 	return resp, err
 }
 
@@ -279,7 +280,8 @@ func (svc *serviceContext) sirsiGet(client *http.Client, uri string) ([]byte, *r
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	log.Printf("INFO: sirsi response: %s", resp)
+	log.Printf("INFO: sirsi request processed in %d (ms)", elapsedMS)
 	return resp, err
 }
 
@@ -293,7 +295,8 @@ func (svc *serviceContext) sirsiDelete(client *http.Client, uri string) ([]byte,
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	log.Printf("INFO: sirsi response: %s", resp)
+	log.Printf("INFO: sirsi request processed in %d (ms)", elapsedMS)
 	return resp, err
 }
 
@@ -308,7 +311,8 @@ func (svc *serviceContext) sirsiPost(client *http.Client, uri string, data inter
 	resp, err := handleAPIResponse(url, rawResp, rawErr)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: %s processed in %d (ms)", url, elapsedMS)
+	log.Printf("INFO: sirsi response: %s", resp)
+	log.Printf("INFO: sirsi request processed in %d (ms)", elapsedMS)
 	return resp, err
 }
 
