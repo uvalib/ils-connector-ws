@@ -236,15 +236,6 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 		hcMap["userinfo"] = hcResp{Healthy: true}
 	}
 
-	// pda healthcheck
-	pdaURL := fmt.Sprintf("%s/healthcheck", svc.PDAURL)
-	_, pdaErr := svc.serviceGet(pdaURL, "")
-	if pdaErr != nil {
-		hcMap["pda"] = hcResp{Healthy: false, Message: pdaErr.string()}
-	} else {
-		hcMap["pda"] = hcResp{Healthy: true}
-	}
-
 	c.JSON(http.StatusOK, hcMap)
 }
 

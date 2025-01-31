@@ -404,7 +404,7 @@ func (svc *serviceContext) registerNewUser(c *gin.Context) {
 		log.Printf("WARNING: unable to update temp user %s: %s", regResp.Patron.Key, changeErr.string())
 	}
 
-	c.String(http.StatusOK, "registeration success")
+	c.String(http.StatusOK, "registration success")
 }
 
 func (svc *serviceContext) activateUser(c *gin.Context) {
