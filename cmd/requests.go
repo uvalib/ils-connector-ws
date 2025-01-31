@@ -43,16 +43,23 @@ type sirsiHoldRequest struct {
 	Comment       string   `json:"comment"`
 }
 
+type sirsiHoldPatron struct {
+	Key    string `json:"key"`
+	Fields struct {
+		DisplayName string `json:"displayName"`
+		AlternateID string `json:"alternateID"`
+		Barcode     string `json:"barcode"`
+	}
+}
+
 type sirsiHoldRec struct {
 	Key    string `json:"key"`
 	Fields struct {
-		Patron struct {
-			Fields struct {
-				AlternateID string `json:"alternateID"`
-			} `json:"fields"`
-		} `json:"patron"`
-		RecallStatus string `json:"recallStatus"`
-		Status       string `json:"status"`
+		Patron        sirsiHoldPatron `json:"patron"`
+		RecallStatus  string          `json:"recallStatus"`
+		Status        string          `json:"status"`
+		PickupLibrary sirsiKey        `json:"pickupLibrary"`
+		PlacedLibrary sirsiKey        `json:"placedLibrary"`
 	} `json:"fields"`
 }
 
@@ -74,22 +81,9 @@ type sirsiBarcodeScanItem struct {
 				Title  string `json:"title"`
 			} `json:"fields"`
 		} `json:"bib"`
-		HoldRecordList []struct {
-			Key    string `json:"key"`
-			Fields struct {
-				Patron struct {
-					Key    string `json:"key"`
-					Fields struct {
-						DisplayName string `json:"displayName"`
-						AlternateID string `json:"alternateID"`
-						Barcode     string `json:"barcode"`
-					} `json:"fields"`
-				} `json:"patron"`
-				PickupLibrary sirsiKey `json:"pickupLibrary"`
-				PlacedLibrary sirsiKey `json:"placedLibrary"`
-			} `json:"fields"`
-		} `json:"holdRecordList"`
-		Transit *sirsiTransitRec `json:"transit"`
+		HoldRecordList []sirsiHoldRec   `json:"holdRecordList"`
+		FillableHolds  []sirsiHoldRec   `json:"fillableHoldList"`
+		Transit        *sirsiTransitRec `json:"transit"`
 	} `json:"fields"`
 }
 type sirsiUntransitResp struct {
@@ -188,6 +182,7 @@ func (svc *serviceContext) deleteHold(c *gin.Context) {
 		c.String(http.StatusInternalServerError, parseErr.Error())
 		return
 	}
+	log.Printf("%+v", hold)
 
 	holdOwner := hold.Fields.Patron.Fields.AlternateID
 	if strings.ToUpper(holdOwner) != strings.ToUpper(v4Claims.UserID) {
@@ -286,8 +281,6 @@ func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLib
 // The scan code may form the URL with ?override=OK or nothing.
 // Instead, just ignore this param and always include
 // override OK in the untransit request. This will work on forst try and avoid looping
-// X001083728 has hold and transit
-// X001167565 has nothing
 func (svc *serviceContext) fillHold(c *gin.Context) {
 	barcode := c.Param("barcode")
 	sessionToken := c.Request.Header.Get("SirsiSessionToken")
@@ -298,9 +291,10 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 	}
 
 	out := barcodeScanResp{Barcode: barcode}
-	fields := `holdRecordList{placedLibrary,pickupLibrary,patron{alternateID,displayName,barcode}},`
+	fields := `holdRecordList{placedLibrary,pickupLibrary,status,patron{alternateID,displayName,barcode}},`
 	fields += `bib{title,author,currentLocation},`
-	fields += `transit{destinationLibrary,holdRecord{placedLibrary,pickupLibrary,patron{alternateID,displayName,barcode}}}`
+	fields += `transit{destinationLibrary,holdRecord},`
+	fields += `fillableHoldList{placedLibrary,pickupLibrary,patron{alternateID,displayName,barcode}}`
 	url := fmt.Sprintf("%s/catalog/item/barcode/%s?includeFields=%s", svc.SirsiConfig.WebServicesURL, barcode, fields)
 	sirsiReq, _ := http.NewRequest("GET", url, nil)
 	svc.setSirsiHeaders(sirsiReq, "STAFF", sessionToken)
@@ -322,8 +316,6 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 		return
 	}
 
-	log.Printf("RAW RESP: %s", itemResp)
-
 	var item sirsiBarcodeScanItem
 	err := json.Unmarshal(itemResp, &item)
 	if err != nil {
@@ -332,46 +324,76 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 		return
 	}
 
-	// X001083728 has holdREcordList
-	// X004769851 has transit
+	// enough data present to populate more fields in the response; do so
+	out.Title = item.Fields.Bib.Fields.Title
+	out.Author = item.Fields.Bib.Fields.Author
 
-	// out.Title = item.Fields.Bib.Fields.Title
-	// out.Author = item.Fields.Bib.Fields.Author
-	// if len(item.Fields.HoldRecordList) == 0 && item.Fields.Transit == nil {
-	// 	log.Printf("INFO: no hold or tansit for %s", barcode)
-	// 	out.ErrorMessages = append(out.ErrorMessages, sirsiMessage{Message: "No hold for this item."})
-	// 	c.JSON(http.StatusOK, out)
-	// 	return
-	// }
+	// pick a hold record; prefer transit over the first in the holdsRecordList
+	// IMPORTANT: the data returned in the transit block only contains the holdRecord KEY and no other details
+	// if a transit record is found, find the hold details in the fillableHoldList
+	var tgtHold *sirsiHoldRec
+	if item.Fields.Transit != nil {
+		log.Printf("INFO: %s is in transit; find hold details", barcode)
+		holdKey := item.Fields.Transit.Fields.HoldRecord.Key
+		for _, h := range item.Fields.FillableHolds {
+			if h.Key == holdKey {
+				tgtHold = &h
+				break
+			}
+		}
+		if tgtHold == nil {
+			log.Printf("ERROR: unable to find in-transit hold %s in fillable holds list", holdKey)
+			c.String(http.StatusInternalServerError, "unable to find hold data in transit item")
+			return
+		}
+	} else if len(item.Fields.HoldRecordList) > 0 {
+		tgtHold = &item.Fields.HoldRecordList[0]
+	}
 
-	// firstHold := item.Fields.HoldRecordList[0]
-	// out.UserName = firstHold.Fields.Patron.Fields.DisplayName
-	// out.UserID = firstHold.Fields.Patron.Fields.AlternateID
-	// out.PickupLibraryID = firstHold.Fields.PickupLibrary.Key
+	if tgtHold == nil {
+		log.Printf("INFO: no hold or transit for %s", barcode)
+		out.ErrorMessages = append(out.ErrorMessages, sirsiMessage{Message: "No hold for this item."})
+		c.JSON(http.StatusOK, out)
+		return
+	}
 
-	// // if the item has transit data, untransit it
-	// if item.Fields.Transit != nil {
-	// 	status, err := svc.untransitItem(barcode, sessionToken, out.PickupLibraryID)
-	// 	if err != nil {
-	// 		log.Printf("ERROR: untransit request failed: %s", err.string())
-	// 		c.String(err.StatusCode, err.Message)
-	// 		return
-	// 	}
-	// 	if status != "ON_SHELF" {
-	// 		log.Printf("ERROR: untransit error returned incorrect status %s", status)
-	// 		out.ErrorMessages = append(out.ErrorMessages, sirsiMessage{Message: status})
-	// 		c.JSON(http.StatusOK, out)
-	// 		return
-	// 	}
-	// }
+	// populate more response data based on target hold; necessary for the next steps
+	out.UserName = tgtHold.Fields.Patron.Fields.DisplayName
+	out.UserID = tgtHold.Fields.Patron.Fields.AlternateID
+	out.PickupLibraryID = tgtHold.Fields.PickupLibrary.Key
 
-	// // now checkout the item....
-	// // userBarcode := firstHold.Fields.Patron.Fields.Barcode
+	// if the item has transit data, untransit it
+	if item.Fields.Transit != nil {
+		status, err := svc.fillHoldUntransitItem(barcode, out.PickupLibraryID, sessionToken)
+		if err != nil {
+			log.Printf("ERROR: untransit request failed: %s", err.string())
+			c.String(err.StatusCode, err.Message)
+			return
+		}
+		if status != "ON_SHELF" {
+			log.Printf("ERROR: untransit error returned incorrect status %s", status)
+			out.ErrorMessages = append(out.ErrorMessages, sirsiMessage{Message: status})
+			c.JSON(http.StatusOK, out)
+			return
+		}
+	}
 
-	c.String(http.StatusNotImplemented, "not implemented")
+	// now checkout the item...
+	userBarcode := tgtHold.Fields.Patron.Fields.Barcode
+	coErr := svc.fillHoldCheckout(userBarcode, barcode, out.PickupLibraryID, sessionToken)
+	if coErr != nil {
+		// on failure, there willl be errors listed in the error string. parse and add them
+		// to the output but don't return a failure error code
+		log.Printf("INFO: fill hold checkout for %s failed: %s", barcode, coErr.string())
+		var msgs sirsiMessageList
+		json.Unmarshal([]byte(coErr.Message), &msgs)
+		out.ErrorMessages = msgs.MessageList
+	}
+
+	c.JSON(http.StatusOK, out)
 }
 
-func (svc *serviceContext) untransitItem(barcode, sessionToken, library string) (string, *requestError) {
+func (svc *serviceContext) fillHoldUntransitItem(barcode, library, sessionToken string) (string, *requestError) {
 	log.Printf("INFO: untransit %s", barcode)
 	req := struct {
 		ItemBarcode string `json:"itemBarcode"`
@@ -385,7 +407,7 @@ func (svc *serviceContext) untransitItem(barcode, sessionToken, library string) 
 	headers["x-sirs-clientID"] = "ILL_CKOUT"
 	headers["sd-working-libraryid"] = library
 	headers["x-sirs-sessionToken"] = sessionToken
-	log.Printf("INFO: checkout payload: %s", payloadBytes)
+	log.Printf("INFO: untransit payload: %s", payloadBytes)
 
 	sirsiResp, sirsiErr := svc.retrySirsiRequest(uri, payloadBytes, headers, overrides, "")
 	if sirsiErr != nil {
@@ -398,5 +420,30 @@ func (svc *serviceContext) untransitItem(barcode, sessionToken, library string) 
 		re := requestError{StatusCode: http.StatusInternalServerError, Message: err.Error()}
 		return "", &re
 	}
+	log.Printf("INFO: %s untransit request results in status: %s", barcode, untResp.CurrentStatus)
 	return untResp.CurrentStatus, nil
+}
+
+func (svc *serviceContext) fillHoldCheckout(userBarcode, barcode, library, sessionToken string) *requestError {
+	log.Printf("INFO: user %s fillhold checkout item %s", userBarcode, barcode)
+	req := struct {
+		PatronBarcode string `json:"patronBarcode"`
+		ItemBarcode   string `json:"itemBarcode"`
+	}{
+		PatronBarcode: userBarcode,
+		ItemBarcode:   barcode,
+	}
+	payloadBytes, _ := json.Marshal(req)
+	uri := "/circulation/circRecord/checkOut"
+	overrides := []string{"CKOBLOCKS"}
+	headers := make(map[string]string)
+	headers["x-sirs-clientID"] = "ILL_CKOUT"
+	headers["sd-working-libraryid"] = library
+	headers["x-sirs-sessionToken"] = sessionToken
+	log.Printf("INFO: fillhold checkout payload: %s", payloadBytes)
+	_, sirsiErr := svc.retrySirsiRequest(uri, payloadBytes, headers, overrides, "")
+	if sirsiErr != nil {
+		return sirsiErr
+	}
+	return nil
 }
