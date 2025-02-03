@@ -352,7 +352,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("User-Agent", "Golang_ILS_Connector")
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", userJWT))
-		_, err := svc.sendRequest("sirsi", svc.HTTPClient, req)
+		_, err := svc.sendRequest("pda-ws", svc.HTTPClient, req)
 		if err != nil {
 			if err.StatusCode == 404 {
 				out = append(out, availRequestOption{Type: "pda", SignInRequired: true,
