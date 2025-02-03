@@ -81,9 +81,8 @@ type sirsiBarcodeScanItem struct {
 				Title  string `json:"title"`
 			} `json:"fields"`
 		} `json:"bib"`
-		HoldRecordList []sirsiHoldRec   `json:"holdRecordList"`
-		FillableHolds  []sirsiHoldRec   `json:"fillableHoldList"`
-		Transit        *sirsiTransitRec `json:"transit"`
+		FillableHolds []sirsiHoldRec   `json:"fillableHoldList"`
+		Transit       *sirsiTransitRec `json:"transit"`
 	} `json:"fields"`
 }
 type sirsiUntransitResp struct {
@@ -281,16 +280,6 @@ func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLib
 // Instead, just ignore this param and always include
 // override OK in the untransit request. This will work on forst try and avoid looping
 func (svc *serviceContext) fillHold(c *gin.Context) {
-
-	// X004896215 X004235094 (both in transit)
-	/*
-		X032296187
-		X004770443
-		X004769851
-		X001083728
-		TODO: remove holdRecordList.. unnecessary and duplicate of fillableHoldList
-	*/
-
 	barcode := c.Param("barcode")
 	sessionToken := c.Request.Header.Get("SirsiSessionToken")
 	if sessionToken == "" {
@@ -300,8 +289,7 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 	}
 
 	out := barcodeScanResp{Barcode: barcode}
-	fields := `holdRecordList{placedLibrary,pickupLibrary,status,patron{alternateID,displayName,barcode}},`
-	fields += `bib{title,author,currentLocation},`
+	fields := `bib{title,author,currentLocation},`
 	fields += `transit{destinationLibrary,holdRecord},`
 	fields += `fillableHoldList{placedLibrary,pickupLibrary,patron{alternateID,displayName,barcode}}`
 	url := fmt.Sprintf("%s/catalog/item/barcode/%s?includeFields=%s", svc.SirsiConfig.WebServicesURL, barcode, fields)
@@ -336,9 +324,9 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 	out.Title = item.Fields.Bib.Fields.Title
 	out.Author = item.Fields.Bib.Fields.Author
 
-	// pick a hold record; prefer transit over the first in the holdsRecordList
 	// IMPORTANT: the data returned in the transit block only contains the holdRecord KEY and no other details
 	// if a transit record is found, find the hold details in the fillableHoldList
+	// IF there is a transit record, the item must be untransited first, then the checkout can proceed
 	var tgtHold *sirsiHoldRec
 	if item.Fields.Transit != nil {
 		log.Printf("INFO: %s is in transit; find hold details", barcode)
@@ -354,8 +342,8 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "unable to find hold data in transit item")
 			return
 		}
-	} else if len(item.Fields.HoldRecordList) > 0 {
-		tgtHold = &item.Fields.HoldRecordList[0]
+	} else if len(item.Fields.FillableHolds) > 0 {
+		tgtHold = &item.Fields.FillableHolds[0]
 	}
 
 	if tgtHold == nil {
