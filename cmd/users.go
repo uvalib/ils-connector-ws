@@ -299,13 +299,13 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: lookup user %s in user-ws", computeID)
 	var user userDetails
-	url := fmt.Sprintf("%s/user/%s", svc.UserInfoURL, computeID)
-	raw, err := svc.serviceGet(url, svc.Secrets.UserJWTKey)
+	jwt := svc.mintUserServiceJWT()
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/user/%s?auth=%s", svc.UserInfoURL, computeID, jwt), nil)
+	raw, err := svc.sendRequest("user-ws", svc.HTTPClient, req)
 	if err != nil {
 		log.Printf("INFO: user %s not found in user-ws; flagging as community user", computeID)
 		user.CommunityUser = true
 	} else {
-		log.Printf("INFO: parse user-ws response [%s]", raw)
 		var userResp userInfoRespData
 		err := json.Unmarshal(raw, &userResp)
 		if err != nil {

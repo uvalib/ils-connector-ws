@@ -215,15 +215,9 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	}
 	payloadBytes, _ := json.Marshal(changeReq)
 	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
-	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	if reqErr != nil {
-		log.Printf("ERROR: unable o create post request for change password request: %s", reqErr.Error())
-		c.String(http.StatusInternalServerError, reqErr.Error())
-		return
-	}
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	svc.setSirsiHeaders(req, "PATRON", respObj.SessionToken)
-	rawResp, rawErr := svc.HTTPClient.Do(req)
-	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
+	_, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if changeErr != nil {
 		log.Printf("WARNING: %s password change failed: %s", passReq.ComputeID, changeErr.string())
 		var msg sirsiMessageList
@@ -298,8 +292,7 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 		return
 	}
 	svc.setSirsiHeaders(req, "PATRON", "")
-	rawResp, rawErr := svc.HTTPClient.Do(req)
-	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
+	_, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if changeErr != nil {
 		log.Printf("WARNING: token password change failed: %s", changeErr.string())
 		var msg sirsiMessageList
@@ -398,8 +391,7 @@ func (svc *serviceContext) registerNewUser(c *gin.Context) {
 	req.Header.Set("Accept", "application/vnd.sirsidynix.roa.resource.v2+json")
 	req.Header.Set("Content-Type", "application/vnd.sirsidynix.roa.resource.v2+json")
 	req.Header.Set("SD-Working-LibraryID", svc.SirsiConfig.Library)
-	rawResp, rawErr := svc.HTTPClient.Do(req)
-	_, changeErr := handleAPIResponse(url, rawResp, rawErr)
+	_, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if changeErr != nil {
 		log.Printf("WARNING: unable to update temp user %s: %s", regResp.Patron.Key, changeErr.string())
 	}

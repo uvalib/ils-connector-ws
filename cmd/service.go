@@ -144,32 +144,15 @@ func (svc *serviceContext) terminateSession() {
 }
 
 func (svc *serviceContext) sirsiLogin() error {
-	log.Printf("INFO: attempting sirsi login...")
-	startTime := time.Now()
+	log.Printf("INFO: attempting sirsi login for %s", svc.SirsiConfig.User)
 	svc.SirsiSession.SessionToken = ""
 	svc.SirsiSession.StaffKey = ""
-	url := fmt.Sprintf("%s/user/staff/login", svc.SirsiConfig.WebServicesURL)
 	payloadOBJ := sirsiStaffLoginReq{
 		Login:    svc.SirsiConfig.User,
 		Password: svc.SirsiConfig.Password,
 	}
-	cut := fmt.Sprintf("%s***", payloadOBJ.Password[0:4])
-	log.Printf("INFO: login user %s, partial pass: %s", payloadOBJ.Login, cut)
-	payloadBytes, _ := json.Marshal(payloadOBJ)
-	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	if reqErr != nil {
-		return fmt.Errorf("unable to create new post request: %s", reqErr.Error())
-	}
-	svc.setSirsiHeaders(req, "STAFF", "")
-	log.Printf("INFO: login headers %+v", req.Header)
-	rawResp, rawErr := svc.HTTPClient.Do(req)
-	if rawErr != nil {
-		log.Printf("ERROR: login failed; raw error: %s", rawErr.Error())
-	}
-	resp, err := handleAPIResponse(url, rawResp, rawErr)
-	elapsedNanoSec := time.Since(startTime)
-	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: login request processed; elapsed time: %d (ms)", elapsedMS)
+
+	resp, err := svc.sirsiPost(svc.HTTPClient, "/user/staff/login", payloadOBJ)
 	if err != nil {
 		return fmt.Errorf("sirsi login failed with %d: %s", err.StatusCode, err.Message)
 	}
@@ -227,9 +210,8 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 		}
 	}
 
-	// user service healthcheck
-	userURL := fmt.Sprintf("%s/healthcheck", svc.UserInfoURL)
-	_, userErr := svc.serviceGet(userURL, "")
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/healthcheck", svc.UserInfoURL), nil)
+	_, userErr := svc.sendRequest("user-ws", svc.HTTPClient, req)
 	if userErr != nil {
 		hcMap["userinfo"] = hcResp{Healthy: false, Message: userErr.string()}
 	} else {
@@ -239,72 +221,26 @@ func (svc *serviceContext) healthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, hcMap)
 }
 
-func (svc *serviceContext) serviceGet(url string, secret string) ([]byte, *requestError) {
-	log.Printf("INFO: service get request: %s", url)
-	startTime := time.Now()
-	if secret != "" {
-		jwt, err := mintBasicJWT(secret)
-		if err != nil {
-			log.Printf("ERROR: unable to mint temporary access jwt: %s", err.Error())
-			return nil, &requestError{StatusCode: http.StatusInternalServerError, Message: err.Error()}
-		}
-		url += fmt.Sprintf("?auth=%s", jwt)
-	}
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
-	rawResp, rawErr := svc.HTTPClient.Do(req)
-	resp, err := handleAPIResponse(url, rawResp, rawErr)
-	elapsedNanoSec := time.Since(startTime)
-	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: get response: %s", resp)
-	log.Printf("INFO: request processed in %d (ms)", elapsedMS)
-	return resp, err
-}
-
 func (svc *serviceContext) sirsiGet(client *http.Client, uri string) ([]byte, *requestError) {
 	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
-	log.Printf("INFO: sirsi get request: %s", url)
-	startTime := time.Now()
 	req, _ := http.NewRequest("GET", url, nil)
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
-	rawResp, rawErr := client.Do(req)
-	resp, err := handleAPIResponse(url, rawResp, rawErr)
-	elapsedNanoSec := time.Since(startTime)
-	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: sirsi response: %s", resp)
-	log.Printf("INFO: sirsi request processed in %d (ms)", elapsedMS)
-	return resp, err
+	return svc.sendRequest("sirsi", client, req)
 }
 
 func (svc *serviceContext) sirsiDelete(client *http.Client, uri string) ([]byte, *requestError) {
 	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
-	log.Printf("INFO: sirsi delete request: %s", url)
-	startTime := time.Now()
 	req, _ := http.NewRequest("DELETE", url, nil)
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
-	rawResp, rawErr := client.Do(req)
-	resp, err := handleAPIResponse(url, rawResp, rawErr)
-	elapsedNanoSec := time.Since(startTime)
-	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: sirsi response: %s", resp)
-	log.Printf("INFO: sirsi request processed in %d (ms)", elapsedMS)
-	return resp, err
+	return svc.sendRequest("sirsi", client, req)
 }
 
 func (svc *serviceContext) sirsiPost(client *http.Client, uri string, data interface{}) ([]byte, *requestError) {
 	url := fmt.Sprintf("%s%s", svc.SirsiConfig.WebServicesURL, uri)
-	log.Printf("INFO: sirsi post request: %s", url)
-	startTime := time.Now()
 	b, _ := json.Marshal(data)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(b))
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
-	rawResp, rawErr := client.Do(req)
-	resp, err := handleAPIResponse(url, rawResp, rawErr)
-	elapsedNanoSec := time.Since(startTime)
-	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
-	log.Printf("INFO: sirsi response: %s", resp)
-	log.Printf("INFO: sirsi request processed in %d (ms)", elapsedMS)
-	return resp, err
+	return svc.sendRequest("sirsi", client, req)
 }
 
 func (svc *serviceContext) setSirsiHeaders(req *http.Request, role string, authToken string) {
@@ -314,10 +250,48 @@ func (svc *serviceContext) setSirsiHeaders(req *http.Request, role string, authT
 	req.Header.Set("SD-Preferred-Role", role)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
 	if authToken != "" {
 		req.Header.Set("x-sirs-sessionToken", authToken)
 	}
+}
+
+func (svc *serviceContext) sendRequest(serviceName string, httpClient *http.Client, request *http.Request) ([]byte, *requestError) {
+	log.Printf("INFO: %s %s request: %s", serviceName, request.Method, request.URL.String())
+	startTime := time.Now()
+	request.Header.Set("User-Agent", "Golang_ILS_Connector") // NOTE: required or sirsi responds with 403
+	rawResp, rawErr := httpClient.Do(request)
+
+	var reqErr *requestError
+	var respBytes []byte
+
+	if rawErr != nil {
+		status := http.StatusBadRequest
+		errMsg := rawErr.Error()
+		if strings.Contains(rawErr.Error(), "Timeout") {
+			status = http.StatusRequestTimeout
+			errMsg = fmt.Sprintf("%s timed out", request.URL.String())
+		} else if strings.Contains(rawErr.Error(), "connection refused") {
+			status = http.StatusServiceUnavailable
+			errMsg = fmt.Sprintf("%s refused connection", request.URL.String())
+		}
+		return nil, &requestError{StatusCode: status, Message: errMsg}
+	}
+
+	respBytes, _ = io.ReadAll(rawResp.Body)
+	rawResp.Body.Close()
+	if rawResp.StatusCode != http.StatusOK && rawResp.StatusCode != http.StatusCreated {
+		status := rawResp.StatusCode
+		errMsg := string(respBytes)
+		respBytes = nil
+		return nil, &requestError{StatusCode: status, Message: errMsg}
+	}
+
+	elapsedNanoSec := time.Since(startTime)
+	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
+	log.Printf("INFO: %s %s request processed in %d (ms)", serviceName, request.Method, elapsedMS)
+	log.Printf("INFO: %s %s response: %s", serviceName, request.Method, respBytes)
+
+	return respBytes, reqErr
 }
 
 func getVirgoClaims(c *gin.Context) (*v4jwt.V4Claims, error) {
@@ -334,40 +308,19 @@ func getVirgoClaims(c *gin.Context) (*v4jwt.V4Claims, error) {
 	return v4Claims, nil
 }
 
-func mintBasicJWT(secret string) (string, error) {
+func (svc *serviceContext) mintUserServiceJWT() string {
 	expirationTime := time.Now().Add(5 * time.Minute)
 	claims := jwt.StandardClaims{
 		ExpiresAt: expirationTime.Unix(),
 		Issuer:    "ilsconector",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
-}
-
-func handleAPIResponse(tgtURL string, resp *http.Response, err error) ([]byte, *requestError) {
+	signedJWT, err := token.SignedString([]byte(svc.Secrets.UserJWTKey))
 	if err != nil {
-		status := http.StatusBadRequest
-		errMsg := err.Error()
-		if strings.Contains(err.Error(), "Timeout") {
-			status = http.StatusRequestTimeout
-			errMsg = fmt.Sprintf("%s timed out", tgtURL)
-		} else if strings.Contains(err.Error(), "connection refused") {
-			status = http.StatusServiceUnavailable
-			errMsg = fmt.Sprintf("%s refused connection", tgtURL)
-		}
-		return nil, &requestError{StatusCode: status, Message: errMsg}
+		log.Printf("ERROR: unable to mint one-time access token: %s", err.Error())
+		return ""
 	}
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		status := resp.StatusCode
-		errMsg := string(bodyBytes)
-		return nil, &requestError{StatusCode: status, Message: errMsg}
-	}
-
-	return bodyBytes, nil
+	return signedJWT
 }
 
 func loadDataFile(filename string) []string {

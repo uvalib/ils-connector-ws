@@ -242,8 +242,7 @@ func (svc *serviceContext) checkinDiBS(c *gin.Context) {
 	sirsiReq.Header.Set("x-sirs-clientID", "DIBS-PATRN")
 	sirsiReq.Header.Set("sd-working-libraryid", "UVA-LIB")
 	sirsiReq.Header.Set("SD-Prompt-Return", "")
-	rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
-	_, ciErr := handleAPIResponse(url, rawResp, rawErr)
+	_, ciErr := svc.sendRequest("sirsi", svc.HTTPClient, sirsiReq)
 	if ciErr != nil {
 		var msgs sirsiMessageList
 		err := json.Unmarshal([]byte(ciErr.Message), &msgs)
@@ -372,8 +371,7 @@ func (svc *serviceContext) retrySirsiRequest(uri string, payload []byte, headers
 		}
 
 		log.Printf("INFO: request attempt #%d with headers [%v]", attempt, sirsiReq.Header)
-		rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
-		sirsiResp, sirsiErr := handleAPIResponse(url, rawResp, rawErr)
+		sirsiResp, sirsiErr := svc.sendRequest("sirsi", svc.HTTPClient, sirsiReq)
 		lastResp = sirsiResp
 		lastErr = sirsiErr
 		if sirsiErr != nil {
@@ -415,8 +413,7 @@ func (svc *serviceContext) sirsiUpdateDiBSStatus(itemKey string, data interface{
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
 	req.Header.Set("x-sirs-clientID", "DIBS-STAFF")
 	req.Header.Set("SD-Prompt-Return", "")
-	rawResp, rawErr := svc.HTTPClient.Do(req)
-	resp, err := handleAPIResponse(url, rawResp, rawErr)
+	resp, err := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
 	log.Printf("INFO: sirsi response: %s", resp)

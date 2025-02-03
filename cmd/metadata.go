@@ -66,8 +66,7 @@ func (svc *serviceContext) updateMetadataRights(c *gin.Context) {
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
 	req.Header.Set("SD-Originating-App-Id", "TrackSys")
 	req.Header.Set("x-sirs-clientID", "TRACKSYS")
-	rawResp, rawErr := svc.HTTPClient.Do(req)
-	bibBytes, bibErr := handleAPIResponse(url, rawResp, rawErr)
+	bibBytes, bibErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if bibErr != nil {
 		if bibErr.StatusCode == 404 {
 			log.Printf("INFO: %s not found", catKey)
@@ -144,8 +143,7 @@ func (svc *serviceContext) updateMetadataRights(c *gin.Context) {
 	svc.setSirsiHeaders(req, "STAFF", svc.SirsiSession.SessionToken)
 	req.Header.Set("SD-Originating-App-Id", "TrackSys")
 	req.Header.Set("x-sirs-clientID", "TRACKSYS")
-	rawPutResp, rawPutErr := svc.HTTPClient.Do(req)
-	_, putErr := handleAPIResponse(url, rawPutResp, rawPutErr)
+	_, putErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if putErr != nil {
 		log.Printf("ERROR: update rights failed: %s", putErr.string())
 		c.String(putErr.StatusCode, putErr.Message)

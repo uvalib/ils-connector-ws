@@ -262,8 +262,7 @@ func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLib
 	postReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	svc.setSirsiHeaders(postReq, "PATRON", svc.SirsiSession.SessionToken)
 	postReq.Header.Set("sd-working-libraryid", workLibrary)
-	rawResp, rawErr := svc.HTTPClient.Do(postReq)
-	_, holdErr := handleAPIResponse(url, rawResp, rawErr)
+	_, holdErr := svc.sendRequest("sirsi", svc.HTTPClient, postReq)
 	if holdErr != nil {
 		return holdErr
 	}
@@ -282,6 +281,16 @@ func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLib
 // Instead, just ignore this param and always include
 // override OK in the untransit request. This will work on forst try and avoid looping
 func (svc *serviceContext) fillHold(c *gin.Context) {
+
+	// X004896215 X004235094 (both in transit)
+	/*
+		X032296187
+		X004770443
+		X004769851
+		X001083728
+		TODO: remove holdRecordList.. unnecessary and duplicate of fillableHoldList
+	*/
+
 	barcode := c.Param("barcode")
 	sessionToken := c.Request.Header.Get("SirsiSessionToken")
 	if sessionToken == "" {
@@ -301,8 +310,7 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 	sirsiReq.Header.Set("SD-Working-LibraryID", "LEO")
 	sirsiReq.Header.Set("x-sirs-clientID", "ILL_CKOUT")
 	log.Printf("INFO: barcode scanner get item url %s with headers %+v", url, sirsiReq.Header)
-	rawResp, rawErr := svc.HTTPClient.Do(sirsiReq)
-	itemResp, itemErr := handleAPIResponse(url, rawResp, rawErr)
+	itemResp, itemErr := svc.sendRequest("sirsi", svc.HTTPClient, sirsiReq)
 	if itemErr != nil {
 		log.Printf("INFO: barcode scan item request failed: %s", itemErr.string())
 		var msgs sirsiMessageList

@@ -352,8 +352,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("User-Agent", "Golang_ILS_Connector")
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", userJWT))
-		rawResp, rawErr := svc.HTTPClient.Do(req)
-		_, err := handleAPIResponse(url, rawResp, rawErr)
+		_, err := svc.sendRequest("sirsi", svc.HTTPClient, req)
 		if err != nil {
 			if err.StatusCode == 404 {
 				out = append(out, availRequestOption{Type: "pda", SignInRequired: true,
@@ -463,7 +462,8 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 
 	if svc.Locations.isCourseReserve((item.CurrentLocationID)) {
 		crURL := fmt.Sprintf("%s/course_reserves?item_id=%s", svc.SirsiConfig.ScriptURL, item.Barcode)
-		rawResp, crErr := svc.serviceGet(crURL, "")
+		req, _ := http.NewRequest("GET", crURL, nil)
+		rawResp, crErr := svc.sendRequest("sirsi-scripts", svc.HTTPClient, req)
 		if crErr != nil {
 			log.Printf("ERROR: unable to get course reser info for %s: %s", item.Barcode, crErr.Message)
 			return ""
