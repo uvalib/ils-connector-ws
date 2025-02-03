@@ -463,7 +463,7 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 	if svc.Locations.isCourseReserve((item.CurrentLocationID)) {
 		crURL := fmt.Sprintf("%s/course_reserves?item_id=%s", svc.SirsiConfig.ScriptURL, item.Barcode)
 		req, _ := http.NewRequest("GET", crURL, nil)
-		rawResp, crErr := svc.sendRequest("sirsi-scripts", svc.HTTPClient, req)
+		rawResp, crErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 		if crErr != nil {
 			log.Printf("ERROR: unable to get course reser info for %s: %s", item.Barcode, crErr.Message)
 			return ""
