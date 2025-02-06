@@ -69,7 +69,8 @@ func (svc *serviceContext) refreshLibraries() {
 		lib.Circulating = !svc.Libraries.isNonCirculating(sl.Key)
 		svc.Libraries.Records = append(svc.Libraries.Records, lib)
 	}
-	log.Printf("INFO: libraries refresed")
+	svc.Libraries.RefreshAt = time.Now().Add(24 * time.Hour)
+	log.Printf("INFO: libraries refreshed")
 }
 
 func (lc *libraryContext) find(key string) *libraryRec {
