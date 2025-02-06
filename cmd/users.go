@@ -210,32 +210,34 @@ type userAddress struct {
 	Phone string `json:"phone"`
 }
 
+type userSirsiProfile struct {
+	PreferredName string       `json:"preferredName,omitempty"`
+	FirstName     string       `json:"firstName,omitempty"`
+	MiddleName    string       `json:"middleName,omitempty"`
+	LastName      string       `json:"lastName,omitempty"`
+	Address1      *userAddress `json:"address1,omitempty"`
+	Address2      *userAddress `json:"address2,omitempty"`
+	Address3Email string       `json:"address3Email,omitempty"`
+}
+
 type userDetails struct {
-	ID            string `json:"id,omitempty"`
-	CommunityUser bool   `json:"communityUser"`
-	Title         string `json:"title,omitempty"`
-	Department    string `json:"department,omitempty"`
-	Address       string `json:"address,omitempty"`
-	Private       string `json:"private,omitempty"`
-	Description   string `json:"description,omitempty"`
-	Barcode       string `json:"barcode"`
-	Key           string `json:"key"`
-	DisplayName   string `json:"displayName"`
-	Email         string `json:"email"`
-	NoAccount     bool   `json:"noAccount,omitempty"`
-	SirsiProfile  struct {
-		PreferredName string      `json:"preferredName"`
-		FirstName     string      `json:"firstName"`
-		MiddleName    string      `json:"middleName"`
-		LastName      string      `json:"lastName"`
-		Address1      userAddress `json:"address1"`
-		Address2      userAddress `json:"address2"`
-		Address3Email string      `json:"address3Email"`
-	} `json:"sirsiProfile"`
-	Profile     string `json:"profile"`
-	Standing    string `json:"standing"`
-	HomeLibrary string `json:"homeLibrary"`
-	AmountOwed  string `json:"amountOwed"`
+	ID            string            `json:"id,omitempty"`
+	CommunityUser bool              `json:"communityUser"`
+	Title         string            `json:"title,omitempty"`
+	Department    string            `json:"department,omitempty"`
+	Address       string            `json:"address,omitempty"`
+	Private       string            `json:"private,omitempty"`
+	Description   string            `json:"description,omitempty"`
+	Barcode       string            `json:"barcode,omitempty"`
+	Key           string            `json:"key,omitempty"`
+	DisplayName   string            `json:"displayName,omitempty"`
+	Email         string            `json:"email,omitempty"`
+	NoAccount     bool              `json:"noAccount,omitempty"`
+	SirsiProfile  *userSirsiProfile `json:"sirsiProfile,omitempty"`
+	Profile       string            `json:"profile,omitempty"`
+	Standing      string            `json:"standing,omitempty"`
+	HomeLibrary   string            `json:"homeLibrary,omitempty"`
+	AmountOwed    string            `json:"amountOwed,omitempty"`
 }
 
 type userHoldsResponse struct {
@@ -336,8 +338,14 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	sirsiURL := fmt.Sprintf("/user/patron/alternateID/%s?includeFields=%s", computeID, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, sirsiURL)
 	if sirsiErr != nil {
-		log.Printf("ERROR: get sirsi user %s failed: %s", computeID, sirsiErr.string())
-		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		if sirsiErr.StatusCode == 404 {
+			log.Printf("INFO: user %s does not have a sirsi account: %s", computeID, sirsiErr.Message)
+			user.NoAccount = true
+			c.JSON(http.StatusOK, user)
+		} else {
+			log.Printf("ERROR: get sirsi user %s failed: %s", computeID, sirsiErr.string())
+			c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		}
 		return
 	}
 
@@ -356,14 +364,16 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	user.Barcode = userFields.Barcode
 	user.Key = userFields.PatronStatusInfo.Key
 	user.DisplayName = userFields.DisplayName
-	user.SirsiProfile.FirstName = userFields.FirstName
-	user.SirsiProfile.MiddleName = userFields.MiddleName
-	user.SirsiProfile.LastName = userFields.LastName
 	user.Profile = userFields.Profile.Key
 	user.HomeLibrary = userFields.Library.Key
 
-	extractAddress(&user.SirsiProfile.Address1, userFields.Address1)
-	extractAddress(&user.SirsiProfile.Address2, userFields.Address2)
+	sirsiProf := userSirsiProfile{}
+	sirsiProf.FirstName = userFields.FirstName
+	sirsiProf.MiddleName = userFields.MiddleName
+	sirsiProf.LastName = userFields.LastName
+	sirsiProf.Address1 = extractAddress(userFields.Address1)
+	sirsiProf.Address2 = extractAddress(userFields.Address2)
+	user.SirsiProfile = &sirsiProf
 
 	// addr3 is email only
 	if len(userFields.Address3) > 1 {
@@ -588,22 +598,27 @@ func (svc *serviceContext) getUserHolds(c *gin.Context) {
 	c.JSON(http.StatusOK, userHoldsResponse{Holds: holds})
 }
 
-func extractAddress(destAddr *userAddress, srcAddressData []sirsiAddressData) {
+func extractAddress(srcAddressData []sirsiAddressData) *userAddress {
+	if len(srcAddressData) == 0 {
+		return nil
+	}
+	out := userAddress{}
 	for _, a1 := range srcAddressData {
 		if a1.Fields.Code.Key == "LINE1" {
-			destAddr.Line1 = a1.Fields.Data
+			out.Line1 = a1.Fields.Data
 		}
 		if a1.Fields.Code.Key == "LINE2" {
-			destAddr.Line2 = a1.Fields.Data
+			out.Line2 = a1.Fields.Data
 		}
 		if a1.Fields.Code.Key == "LINE3" {
-			destAddr.Line3 = a1.Fields.Data
+			out.Line3 = a1.Fields.Data
 		}
 		if a1.Fields.Code.Key == "ZIP" {
-			destAddr.Zip = a1.Fields.Data
+			out.Zip = a1.Fields.Data
 		}
 		if a1.Fields.Code.Key == "PHONE" {
-			destAddr.Phone = a1.Fields.Data
+			out.Phone = a1.Fields.Data
 		}
 	}
+	return &out
 }
