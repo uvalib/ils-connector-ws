@@ -224,6 +224,9 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 			continue
 		}
 		for _, itemRec := range callRec.Fields.ItemList {
+			if itemRec.Fields.Shadowed {
+				continue
+			}
 			currLoc := svc.Locations.find(itemRec.Fields.CurrentLocation.Key)
 			if currLoc.Shadowed || currLoc.Online {
 				continue

@@ -203,11 +203,11 @@ type sirsiHolds struct {
 // ILSConnector response structures ===========================================
 
 type userAddress struct {
-	Line1 string `json:"line1"`
-	Line2 string `json:"line2"`
-	Line3 string `json:"line3"`
-	Zip   string `json:"zip"`
-	Phone string `json:"phone"`
+	Line1 string `json:"line1,omitempty"`
+	Line2 string `json:"line2,omitempty"`
+	Line3 string `json:"line3,omitempty"`
+	Zip   string `json:"zip,omitempty"`
+	Phone string `json:"phone,omitempty"`
 }
 
 type userSirsiProfile struct {
