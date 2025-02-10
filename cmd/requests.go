@@ -126,8 +126,14 @@ func (svc *serviceContext) createHold(c *gin.Context) {
 
 	holdErr := svc.placeHold(holdReq, v4Claims.Barcode, v4Claims.HomeLibrary)
 	if holdErr != nil {
-		log.Printf("ERROR: patron %s place hold %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.string())
-		out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
+		if strings.Contains(holdErr.Message, "messageList") {
+			out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
+		} else {
+			log.Printf("ERROR: patron %s place hold %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.Message)
+			c.String(holdErr.StatusCode, holdErr.Message)
+			return
+		}
+		log.Printf("INFO: patron %s unable to place hold %+v: %+v", v4Claims.Barcode, holdReq, *out.Hold.Errors)
 	}
 
 	c.JSON(http.StatusOK, out)
@@ -202,7 +208,7 @@ func (svc *serviceContext) deleteHold(c *gin.Context) {
 		if sirsiErr.StatusCode == 204 {
 			c.String(http.StatusOK, "deleted")
 		} else {
-			log.Printf("ERROR: cancel hold failed: %s", sirsiErr.string())
+			log.Printf("INFO: unable to cancel hold: %s", sirsiErr.Message)
 			c.String(sirsiErr.StatusCode, sirsiErr.Message)
 		}
 		return
@@ -234,8 +240,14 @@ func (svc *serviceContext) createScan(c *gin.Context) {
 	log.Printf("INFO: scan request: %+v", holdReq)
 	holdErr := svc.placeHold(holdReq, "999999462", "LEO")
 	if holdErr != nil {
-		log.Printf("ERROR: patron %s scan request %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.string())
-		out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
+		if strings.Contains(holdErr.Message, "messageList") {
+			out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
+		} else {
+			log.Printf("ERROR: patron %s scan request %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.Message)
+			c.String(holdErr.StatusCode, holdErr.Message)
+			return
+		}
+		log.Printf("INFO: patron %s unable to place scan request %+v: %+v", v4Claims.Barcode, holdReq, *out.Hold.Errors)
 	}
 
 	c.JSON(http.StatusOK, out)
