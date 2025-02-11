@@ -122,30 +122,32 @@ func (svc *serviceContext) checkPassword(c *gin.Context) {
 	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/authenticate", data)
 	if sirsiErr != nil {
 		if sirsiErr.StatusCode == 401 {
-			// some accounts have the computeID in the barcode field.. try that
+			// unauthorized. some accounts have the computeID in the barcode field... try that
 			log.Printf("INFO: alt id password check failed; try barcode")
-			bcErr := svc.checkBarcodePassword(passReq.ComputeID, passReq.Password)
-			if bcErr != nil {
-				if bcErr.StatusCode == 401 {
-					log.Printf("INFO: check pass for barcode %s failed: %s", passReq.ComputeID, sirsiErr.string())
-					c.String(http.StatusUnauthorized, "invalid")
-				} else {
-					log.Printf("ERROR: check pass for barcode %s  failed: %s", passReq.ComputeID, sirsiErr.string())
-					c.String(http.StatusInternalServerError, "invalid")
-				}
-			} else {
+			if svc.checkBarcodePassword(passReq.ComputeID, passReq.Password) {
 				c.String(http.StatusOK, "valid")
+			} else {
+				c.String(http.StatusUnauthorized, "invalid")
 			}
-		} else {
-			log.Printf("ERROR: check pass for %s  failed: %s", passReq.ComputeID, sirsiErr.string())
-			c.String(http.StatusInternalServerError, "invalid")
+			return
 		}
+
+		// go an error response, parse parse it and log results
+		errMsgs, err := svc.handleSirsiErrorResponse(sirsiErr)
+		if err != nil {
+			log.Printf("ERROR: check pass for alt id %s  failed: %s", passReq.ComputeID, sirsiErr.string())
+			c.String(http.StatusInternalServerError, sirsiErr.Message)
+			return
+		}
+		log.Printf("INFO: unsuccessful check pass for alt id %s: %v", passReq.ComputeID, errMsgs.MessageList)
+		c.String(http.StatusUnauthorized, "invalid")
 		return
 	}
+
 	c.String(http.StatusOK, "valid")
 }
 
-func (svc *serviceContext) checkBarcodePassword(computeID, pass string) *requestError {
+func (svc *serviceContext) checkBarcodePassword(computeID, pass string) bool {
 	data := struct {
 		Barcode  string `json:"barcode"`
 		Password string `json:"password"`
@@ -155,9 +157,15 @@ func (svc *serviceContext) checkBarcodePassword(computeID, pass string) *request
 	}
 	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/authenticate", data)
 	if sirsiErr != nil {
-		return sirsiErr
+		errMsgs, err := svc.handleSirsiErrorResponse(sirsiErr)
+		if err != nil {
+			log.Printf("ERROR: check pass for barcode %s failed: %s", computeID, sirsiErr.string())
+		} else {
+			log.Printf("INFO: unsuccessful check pass for barcode %s: %v", computeID, errMsgs.MessageList)
+		}
+		return false
 	}
-	return nil
+	return true
 }
 
 //	curl --request POST  \
@@ -188,10 +196,11 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 
 	loginResp, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/login", loginReq)
 	if sirsiErr != nil {
-		log.Printf("ERROR: change pass for %s failed: %s", passReq.ComputeID, sirsiErr.string())
 		if sirsiErr.StatusCode == 401 {
+			log.Printf("INFO: change pass for %s failed for incorrect passwor", passReq.ComputeID)
 			c.String(http.StatusUnauthorized, "incorrect password")
 		} else {
+			log.Printf("ERROR: change pass for %s failed: %s", passReq.ComputeID, sirsiErr.string())
 			c.String(sirsiErr.StatusCode, sirsiErr.Message)
 		}
 		return
@@ -287,7 +296,7 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
 	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	if reqErr != nil {
-		log.Printf("ERROR: unable o create post request for token change password request: %s", reqErr.Error())
+		log.Printf("ERROR: unable to create post request for token change password request: %s", reqErr.Error())
 		c.String(http.StatusInternalServerError, reqErr.Error())
 		return
 	}

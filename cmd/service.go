@@ -294,6 +294,22 @@ func (svc *serviceContext) sendRequest(serviceName string, httpClient *http.Clie
 	return respBytes, reqErr
 }
 
+func (svc *serviceContext) handleSirsiErrorResponse(errResp *requestError) (*sirsiError, *requestError) {
+	// check the error response for messageList data. If it is present, this is not considered a
+	// system error and should be logged as an informative message. If it is not present, return an
+	// errror so it can be logged as a system error with an ERROR tag
+	if strings.Contains(errResp.Message, "messageList") {
+		var parsedErr sirsiError
+		parseErr := json.Unmarshal([]byte(errResp.Message), &parsedErr)
+		if parseErr != nil {
+			newErr := requestError{StatusCode: http.StatusInternalServerError, Message: parseErr.Error()}
+			return nil, &newErr
+		}
+		return &parsedErr, nil
+	}
+	return nil, errResp
+}
+
 func getVirgoClaims(c *gin.Context) (*v4jwt.V4Claims, error) {
 	claims, exist := c.Get("claims")
 	if exist == false {

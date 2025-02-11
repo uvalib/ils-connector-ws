@@ -126,32 +126,26 @@ func (svc *serviceContext) createHold(c *gin.Context) {
 
 	holdErr := svc.placeHold(holdReq, v4Claims.Barcode, v4Claims.HomeLibrary)
 	if holdErr != nil {
-		if strings.Contains(holdErr.Message, "messageList") {
-			out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
-		} else {
+		sirsiErr, err := svc.handleSirsiErrorResponse(holdErr)
+		if err != nil {
 			log.Printf("ERROR: patron %s place hold %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.Message)
 			c.String(holdErr.StatusCode, holdErr.Message)
 			return
 		}
+		out.Hold.Errors = getHoldErrorMessages(sirsiErr)
 		log.Printf("INFO: patron %s unable to place hold %+v: %+v", v4Claims.Barcode, holdReq, *out.Hold.Errors)
 	}
 
 	c.JSON(http.StatusOK, out)
 }
 
-func getHoldErrorMessages(rawErrors string) *holdErrorsData {
+func getHoldErrorMessages(sirsiErr *sirsiError) *holdErrorsData {
 	errors := holdErrorsData{}
-	var errMessages sirsiMessageList
-	parseErr := json.Unmarshal([]byte(rawErrors), &errMessages)
-	if parseErr != nil {
-		errors.Sirsi = append(errors.Sirsi, parseErr.Error())
-	} else {
-		for _, m := range errMessages.MessageList {
-			if m.Code == "keyParseError" {
-				errors.ItemBarcode = append(errors.ItemBarcode, "Invalid title key")
-			} else {
-				errors.Sirsi = append(errors.Sirsi, m.Message)
-			}
+	for _, m := range sirsiErr.MessageList {
+		if m.Code == "keyParseError" {
+			errors.ItemBarcode = append(errors.ItemBarcode, "Invalid title key")
+		} else {
+			errors.Sirsi = append(errors.Sirsi, m.Message)
 		}
 	}
 	return &errors
@@ -240,13 +234,13 @@ func (svc *serviceContext) createScan(c *gin.Context) {
 	log.Printf("INFO: scan request: %+v", holdReq)
 	holdErr := svc.placeHold(holdReq, "999999462", "LEO")
 	if holdErr != nil {
-		if strings.Contains(holdErr.Message, "messageList") {
-			out.Hold.Errors = getHoldErrorMessages(holdErr.Message)
-		} else {
+		sirsiErr, err := svc.handleSirsiErrorResponse(holdErr)
+		if err != nil {
 			log.Printf("ERROR: patron %s scan request %+v failed: %s", v4Claims.Barcode, holdReq, holdErr.Message)
 			c.String(holdErr.StatusCode, holdErr.Message)
 			return
 		}
+		out.Hold.Errors = getHoldErrorMessages(sirsiErr)
 		log.Printf("INFO: patron %s unable to place scan request %+v: %+v", v4Claims.Barcode, holdReq, *out.Hold.Errors)
 	}
 
