@@ -102,8 +102,8 @@ func (a tmpAccount) MarshalJSON() ([]byte, error) {
 //	  --data '{"barcode": "C000011111", "password": "PASS"}'
 func (svc *serviceContext) checkPassword(c *gin.Context) {
 	var passReq struct {
-		ComputeID string `json:"barcode"`
-		Password  string `json:"password"`
+		UserBarcode string `json:"barcode"`
+		Password    string `json:"password"`
 	}
 	err := c.ShouldBindJSON(&passReq)
 	if err != nil {
@@ -111,12 +111,12 @@ func (svc *serviceContext) checkPassword(c *gin.Context) {
 		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
-	log.Printf("INFO: check password for %s", passReq.ComputeID)
+	log.Printf("INFO: check password for %s", passReq.UserBarcode)
 	data := struct {
 		AlternateID string `json:"alternateID"`
 		Password    string `json:"password"`
 	}{
-		AlternateID: passReq.ComputeID,
+		AlternateID: passReq.UserBarcode,
 		Password:    passReq.Password,
 	}
 	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/authenticate", data)
@@ -124,7 +124,7 @@ func (svc *serviceContext) checkPassword(c *gin.Context) {
 		if sirsiErr.StatusCode == 401 {
 			// unauthorized. some accounts have the computeID in the barcode field... try that
 			log.Printf("INFO: alt id password check failed; try barcode")
-			if svc.checkBarcodePassword(passReq.ComputeID, passReq.Password) {
+			if svc.checkBarcodePassword(passReq.UserBarcode, passReq.Password) {
 				c.String(http.StatusOK, "valid")
 			} else {
 				c.String(http.StatusUnauthorized, "invalid")
@@ -135,11 +135,11 @@ func (svc *serviceContext) checkPassword(c *gin.Context) {
 		// go an error response, parse parse it and log results
 		errMsgs, err := svc.handleSirsiErrorResponse(sirsiErr)
 		if err != nil {
-			log.Printf("ERROR: check pass for alt id %s  failed: %s", passReq.ComputeID, sirsiErr.string())
+			log.Printf("ERROR: check pass for alt id %s  failed: %s", passReq.UserBarcode, sirsiErr.string())
 			c.String(http.StatusInternalServerError, sirsiErr.Message)
 			return
 		}
-		log.Printf("INFO: unsuccessful check pass for alt id %s: %v", passReq.ComputeID, errMsgs.MessageList)
+		log.Printf("INFO: unsuccessful check pass for alt id %s: %v", passReq.UserBarcode, errMsgs.MessageList)
 		c.String(http.StatusUnauthorized, "invalid")
 		return
 	}
@@ -171,12 +171,12 @@ func (svc *serviceContext) checkBarcodePassword(computeID, pass string) bool {
 //	curl --request POST  \
 //	  --url http://localhost:8185/users/change_password \
 //	  --header 'Content-Type: application/json' \
-//	  --data '{"computeID": "C000011111", "currPassword": "PASS!", "newPassword": "NEW"}'
+//	  --data '{"barcode": "C000011111", "currPassword": "PASS!", "newPassword": "NEW"}'
 func (svc *serviceContext) changePassword(c *gin.Context) {
 	var passReq struct {
-		CurrPin   string `json:"current_pin"`
-		NewPin    string `json:"new_pin"`
-		ComputeID string `json:"barcode"`
+		CurrPassword string `json:"currPassword"`
+		NewPassword  string `json:"newPassword"`
+		UserBarcode  string `json:"barcode"`
 	}
 	err := c.ShouldBindJSON(&passReq)
 	if err != nil {
@@ -185,22 +185,22 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: change password for %s; first sign in...", passReq.ComputeID)
+	log.Printf("INFO: change password for %s; first sign in...", passReq.UserBarcode)
 	loginReq := struct {
 		Login    string `json:"login"`
 		Password string `json:"password"`
 	}{
-		Login:    passReq.ComputeID,
-		Password: passReq.CurrPin,
+		Login:    passReq.UserBarcode,
+		Password: passReq.CurrPassword,
 	}
 
 	loginResp, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/login", loginReq)
 	if sirsiErr != nil {
 		if sirsiErr.StatusCode == 401 {
-			log.Printf("INFO: change pass for %s failed for incorrect passwor", passReq.ComputeID)
+			log.Printf("INFO: change pass for %s failed for incorrect password", passReq.UserBarcode)
 			c.String(http.StatusUnauthorized, "incorrect password")
 		} else {
-			log.Printf("ERROR: change pass for %s failed: %s", passReq.ComputeID, sirsiErr.string())
+			log.Printf("ERROR: change pass for %s failed: %s", passReq.UserBarcode, sirsiErr.string())
 			c.String(sirsiErr.StatusCode, sirsiErr.Message)
 		}
 		return
@@ -209,18 +209,18 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	var respObj sirsiSigniResponse
 	parseErr := json.Unmarshal(loginResp, &respObj)
 	if parseErr != nil {
-		log.Printf("ERROR: unable to parse %s login response: %s", passReq.ComputeID, parseErr)
+		log.Printf("ERROR: unable to parse %s login response: %s", passReq.UserBarcode, parseErr)
 		c.String(http.StatusInternalServerError, parseErr.Error())
 		return
 	}
 
-	log.Printf("INFO: %s signed in; change password...", passReq.ComputeID)
+	log.Printf("INFO: %s signed in; change password...", passReq.UserBarcode)
 	changeReq := struct {
 		NewPass  string `json:"newPin"`
 		CurrPass string `json:"currentPin"`
 	}{
-		NewPass:  passReq.NewPin,
-		CurrPass: passReq.CurrPin,
+		NewPass:  passReq.NewPassword,
+		CurrPass: passReq.CurrPassword,
 	}
 	payloadBytes, _ := json.Marshal(changeReq)
 	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
@@ -228,7 +228,7 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	svc.setSirsiHeaders(req, "PATRON", respObj.SessionToken)
 	_, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if changeErr != nil {
-		log.Printf("WARNING: %s password change failed: %s", passReq.ComputeID, changeErr.string())
+		log.Printf("WARNING: %s password change failed: %s", passReq.UserBarcode, changeErr.string())
 		var msg sirsiMessageList
 		err := json.Unmarshal([]byte(changeErr.Message), &msg)
 		if err != nil {

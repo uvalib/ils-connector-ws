@@ -13,7 +13,7 @@ import (
 )
 
 // Version of the service
-const version = "1.1.1"
+const version = "1.2.0"
 
 func main() {
 	log.Printf("===> ILS Connector service staring up <===")
@@ -59,8 +59,8 @@ func main() {
 	router.POST("/metadata/:cat_key/update_rights", svc.sirsiAuthMiddleware, svc.updateMetadataRights)
 
 	// account management
-	router.POST("/users/:id/check_pin", svc.sirsiAuthMiddleware, svc.checkPassword)
-	router.POST("/users/:id/change_pin", svc.sirsiAuthMiddleware, svc.changePassword)
+	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)
+	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword)
 	router.POST("/users/change_password_with_token", svc.sirsiAuthMiddleware, svc.changePasswordWithToken)
 	router.POST("/users/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword)
 	router.POST("/users/register", svc.sirsiAuthMiddleware, svc.registerNewUser)
