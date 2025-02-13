@@ -299,6 +299,7 @@ func (svc *serviceContext) handleSirsiErrorResponse(errResp *requestError) (*sir
 	// system error and should be logged as an informative message. If it is not present, return an
 	// errror so it can be logged as a system error with an ERROR tag
 	if strings.Contains(errResp.Message, "messageList") {
+		log.Printf("INFO: extract message list from failed sirsi response %s", errResp.string())
 		var parsedErr sirsiError
 		parseErr := json.Unmarshal([]byte(errResp.Message), &parsedErr)
 		if parseErr != nil {
