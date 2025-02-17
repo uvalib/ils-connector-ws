@@ -85,9 +85,19 @@ func (svc *serviceContext) renewCheckouts(c *gin.Context) {
 			rawRenewResp, rawErr := svc.sirsiPost(svc.HTTPClient, "/circulation/circRecord/renew", payload)
 			if rawErr != nil {
 				log.Printf("INFO: unable to renew %s: %s", coBarcode, rawErr.Message)
-				out.Results = append(out.Results, renewResponseRec{
-					Barcode: coBarcode, Success: false, Message: rawErr.Message,
-				})
+				parsedErr, err := svc.handleSirsiErrorResponse(rawErr)
+				if err != nil {
+					log.Printf("ERROR: unable to parse sirsi failed response: %s", err.Message)
+					out.Results = append(out.Results, renewResponseRec{
+						Barcode: coBarcode, Success: false, Message: rawErr.Message,
+					})
+				} else {
+					reason := parsedErr.MessageList[0].Message
+					log.Printf("INFO: renew %s fail reason: %s", coBarcode, reason)
+					out.Results = append(out.Results, renewResponseRec{
+						Barcode: coBarcode, Success: false, Message: reason,
+					})
+				}
 			} else {
 				log.Printf("INFO: raw renew resp: %s", rawRenewResp)
 				out.RenewedCount++
