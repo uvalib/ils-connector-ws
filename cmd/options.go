@@ -15,6 +15,7 @@ type holdableItem struct {
 	LocationID string `json:"location_id"`
 	IsVideo    bool   `json:"is_video"`
 	Notice     string `json:"notice"`
+	Volume     string `json:"-"`
 }
 
 type requestOption struct {
@@ -39,7 +40,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 
 		// unavailable or non circulating items are not holdable. This assumes (per original code)
 		// that al users can request onshelf items
-		if item.Unavailable || item.NonCirculating || item.CopyNumber > 1 {
+		if item.Unavailable || item.NonCirculating {
 			continue
 		}
 
@@ -47,7 +48,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		if svc.Locations.isMediumRare(item.HomeLocationID) {
 			holdableItem.Label += " (Ivy limited circulation)"
 		}
-		if holdableExists(item, holdableItems) == false {
+		if holdableExists(holdableItem, holdableItems) == false {
 			holdableItems = append(holdableItems, holdableItem)
 		}
 	}
@@ -118,10 +119,10 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 	return out
 }
 
-func holdableExists(item availItem, holdableItems []holdableItem) bool {
+func holdableExists(tgtItem holdableItem, holdableItems []holdableItem) bool {
 	exist := false
 	for _, hi := range holdableItems {
-		if strings.ToUpper(hi.Label) == strings.ToUpper(item.CallNumber) || hi.Barcode == item.Barcode {
+		if strings.ToUpper(hi.Label) == strings.ToUpper(tgtItem.Label) || hi.Barcode == tgtItem.Barcode {
 			exist = true
 			break
 		}
@@ -131,7 +132,7 @@ func holdableExists(item availItem, holdableItems []holdableItem) bool {
 		// have any volume info. Ex: u5841451 is a video with 2 unique callnumns:
 		// VIDEO .DVD19571 and KLAUS DVD #1224. Since neiter is a different volume they are considered
 		// the same item from a request persective. Only add the first instance of such items.
-		return item.Volume == "" && len(holdableItems) > 0
+		return tgtItem.Volume == "" && len(holdableItems) > 0
 	}
 	return exist
 }

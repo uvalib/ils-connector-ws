@@ -30,7 +30,6 @@ type sirsiItemInfo struct {
 		Call            sirsiKey  `json:"call"`
 		Barcode         string    `json:"barcode"`
 		Circulate       bool      `json:"circulate"`
-		CopyNumber      int       `json:"copyNumber"`
 		CreatedDate     string    `json:"createdDate"`
 		CurrentLocation sirsiKey  `json:"currentLocation"`
 		HomeLocation    sirsiKey  `json:"homeLocation"`

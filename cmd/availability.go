@@ -85,11 +85,6 @@ type sirsiBibResponse struct {
 	} `json:"fields"`
 }
 
-type copyNumRec struct {
-	Barcode    string `json:"barcode"`
-	CopyNumber string `json:"copyNumber"`
-}
-
 type availItemField struct {
 	Name     string `json:"name"`
 	Value    string `json:"value"`
@@ -108,11 +103,10 @@ type availItem struct {
 	CurrentLocation   string           `json:"current_location"`
 	CurrentLocationID string           `json:"current_location_id"`
 	HomeLocationID    string           `json:"home_location_id"`
-	CallNumber        string           `json:"call_number"`
+	CallNumber        string           `json:"call_number"` // NOTE: copy number as appened here as (copy n)
 	IsVideo           bool             `json:"is_video"`
 	Volume            string           `json:"volume"`
 	NonCirculating    bool             `json:"non_circulating"`
-	CopyNumber        int              `json:"-"`
 }
 
 func (ai *availItem) toHoldableItem() holdableItem {
@@ -123,7 +117,7 @@ func (ai *availItem) toHoldableItem() holdableItem {
 	return holdableItem{Barcode: ai.Barcode,
 		Label: cn, Library: ai.Library,
 		Location: ai.CurrentLocation, LocationID: ai.CurrentLocationID,
-		IsVideo: ai.IsVideo, Notice: ai.Notice}
+		IsVideo: ai.IsVideo, Notice: ai.Notice, Volume: ai.Volume}
 }
 
 type boundWithRec struct {
@@ -202,30 +196,32 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 	out := make([]availItem, 0)
 	for _, callRec := range bibResp.Fields.CallList {
 		if callRec.Fields.Shadowed {
+			log.Printf("INFO: callRec key %s is shadowed; not adding to availability list", callRec.Key)
 			continue
 		}
 		for _, itemRec := range callRec.Fields.ItemList {
 			if itemRec.Fields.Shadowed {
+				log.Printf("INFO: itemRec key %s is shadowed; not adding to availability list", itemRec.Key)
 				continue
 			}
 			currLoc := svc.Locations.find(itemRec.Fields.CurrentLocation.Key)
 			if currLoc.Shadowed || currLoc.Online {
+				log.Printf("INFO: location %s is shadowed; not adding to availability list", currLoc.Key)
 				continue
 			}
 
 			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
-			multipleCopies := false
 			for _, test := range callRec.Fields.ItemList {
 				if test.Fields.CopyNumber > 1 {
-					multipleCopies = true
+					// append the copy num to the call number for display in the availability
+					// section of virgo. NOTE: for actually making a request for a non-special-collections item, the copy number
+					// is ignored since end users cant pick a specific copy; all are considered the same. For special collections
+					// each copy is a unique item that can be requested directly
+					item.CallNumber += fmt.Sprintf(" (copy %d)", itemRec.Fields.CopyNumber)
 					break
 				}
 			}
-			if multipleCopies {
-				item.CallNumber += fmt.Sprintf(" (copy %d)", itemRec.Fields.CopyNumber)
-			}
 
-			item.CopyNumber = itemRec.Fields.CopyNumber
 			item.Barcode = itemRec.Fields.Barcode
 			item.Volume = callRec.Fields.Volumetric
 			item.Library = callRec.Fields.Library.Fields.Description
