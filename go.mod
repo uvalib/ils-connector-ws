@@ -7,11 +7,11 @@ require (
 	github.com/gin-contrib/gzip v1.2.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
-	github.com/uvalib/virgo4-jwt v1.1.0
+	github.com/uvalib/virgo4-jwt v1.2.1
 )
 
 require (
-	github.com/bytedance/sonic v1.12.8 // indirect
+	github.com/bytedance/sonic v1.12.9 // indirect
 	github.com/bytedance/sonic/loader v0.2.3 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect

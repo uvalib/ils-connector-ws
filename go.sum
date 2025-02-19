@@ -1,5 +1,5 @@
-github.com/bytedance/sonic v1.12.8 h1:4xYRVRlXIgvSZ4e8iVTlMF5szgpXd4AfvuWgA8I8lgs=
-github.com/bytedance/sonic v1.12.8/go.mod h1:uVvFidNmlt9+wa31S1urfwwthTWteBgG0hWuoKAXTx8=
+github.com/bytedance/sonic v1.12.9 h1:Od1BvK55NnewtGaJsTDeAOSnLVO2BTSLOe0+ooKokmQ=
+github.com/bytedance/sonic v1.12.9/go.mod h1:uVvFidNmlt9+wa31S1urfwwthTWteBgG0hWuoKAXTx8=
 github.com/bytedance/sonic/loader v0.1.1/go.mod h1:ncP89zfokxS5LZrJxl5z0UJcsk4M4yY2JpfqGeCtNLU=
 github.com/bytedance/sonic/loader v0.2.3 h1:yctD0Q3v2NOGfSWPLPvG2ggA2kV6TS6s4wioyEqssH0=
 github.com/bytedance/sonic/loader v0.2.3/go.mod h1:N8A3vUdtUebEY2/VQC0MyhYeKUFosQU6FxH2JmUe6VI=
@@ -76,8 +76,8 @@ github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65EE=
 github.com/ugorji/go/codec v1.2.12/go.mod h1:UNopzCgEMSXjBc6AOMqYvWC1ktqTAfzJZUZgYf6w6lg=
-github.com/uvalib/virgo4-jwt v1.1.0 h1:4Zg0huVnMZOcu64waD4M/30OVt0Q9aUZpGlorqluV5c=
-github.com/uvalib/virgo4-jwt v1.1.0/go.mod h1:3pcQ+XdN3q29AExajOiWzASmTGOXsfeEDOKh5VxEKXU=
+github.com/uvalib/virgo4-jwt v1.2.1 h1:DjH0Drxv/Kji6yEnhug/Cs/cfhKlLu7zh9YwMiiYeFk=
+github.com/uvalib/virgo4-jwt v1.2.1/go.mod h1:3pcQ+XdN3q29AExajOiWzASmTGOXsfeEDOKh5VxEKXU=
 golang.org/x/arch v0.14.0 h1:z9JUEZWr8x4rR0OU6c4/4t6E6jOZ8/QBS2bBYBm4tx4=
 golang.org/x/arch v0.14.0/go.mod h1:FEVrYAQjsQXMVJ1nsMoVVXPZg6p2JE2mx8psSWTDQys=
 golang.org/x/crypto v0.33.0 h1:IOBPskki6Lysi0lo9qQvbxiQ+FvsCC/YWOecCHAixus=
