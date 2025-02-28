@@ -340,8 +340,13 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	if sirsiErr != nil {
 		if sirsiErr.StatusCode == 404 {
 			log.Printf("INFO: user %s does not have a sirsi account: %s", computeID, sirsiErr.Message)
-			user.NoAccount = true
-			c.JSON(http.StatusOK, user)
+			if user.CommunityUser == true {
+				log.Printf("INFO: user %s not found in user-ws nor sirsi; flagging as not found", computeID)
+				c.String(http.StatusNotFound, fmt.Sprintf("%s not found", computeID))
+			} else {
+				user.NoAccount = true
+				c.JSON(http.StatusOK, user)
+			}
 		} else {
 			log.Printf("ERROR: get sirsi user %s failed: %s", computeID, sirsiErr.string())
 			c.String(sirsiErr.StatusCode, sirsiErr.Message)
