@@ -10,19 +10,35 @@ import (
 )
 
 type renewRequest struct {
-	ComputingID string `json:"computing_id"`
-	Barcode     string `json:"item_barcode"`
+	ComputingID string   `json:"computing_id"`
+	Barcodes    []string `json:"barcodes"`
 }
 
 type renewResponseRec struct {
-	Barcode string `json:"barcode"`
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Barcode       string `json:"barcode"`
+	DueDate       string `json:"dueDate"`
+	RenewDate     string `json:"renewalDate"`
+	RecallDueDate string `json:"recallDueDate"`
+	Status        string `json:"status"`
+	Success       bool   `json:"success"`
+	Message       string `json:"message"`
 }
 
 type renewResponse struct {
 	RenewedCount int                `json:"renwed"`
 	Results      []renewResponseRec `json:"results"`
+}
+
+type sirsiRenewResponse struct {
+	CircRecord struct {
+		Fields struct {
+			CheckOutDate  string `json:"checkOutDate"`
+			DueDate       string `json:"dueDate"`
+			RecallDueDate string `json:"recallDueDate"`
+			RenewalDate   string `json:"renewalDate"`
+			Status        string `json:"status"`
+		} `json:"fields"`
+	} `json:"circRecord"`
 }
 
 type sirsiCheckoutBarcodesResponse struct {
@@ -53,64 +69,50 @@ func (svc *serviceContext) renewCheckouts(c *gin.Context) {
 		c.String(http.StatusUnauthorized, "you are not authorized to issue a renew request")
 		return
 	}
-	log.Printf("INFO: user %s issues a renew request for %s; retrieve all checkouts first", v4Claims.UserID, req.Barcode)
-	fields := "circRecordList{item{barcode}}"
-	url := fmt.Sprintf("/user/patron/alternateID/%s?i&includeFields=%s", v4Claims.UserID, fields)
-	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
-	if sirsiErr != nil {
-		log.Printf("ERROR: get %s checkouts failed: %s", v4Claims.UserID, sirsiErr.string())
-		c.String(sirsiErr.StatusCode, sirsiErr.Message)
-		return
-	}
-	var checkoutsResp sirsiCheckoutBarcodesResponse
-	parseErr := json.Unmarshal(sirsiRaw, &checkoutsResp)
-	if parseErr != nil {
-		log.Printf("ERROR: unable to parse checkouts response: %s", parseErr.Error())
-		c.String(http.StatusInternalServerError, parseErr.Error())
-		return
-	}
+
+	log.Printf("INFO: user %s requests renew %+v", v4Claims.Barcode, req.Barcodes)
 
 	out := renewResponse{}
-	requested := false
-	for _, rec := range checkoutsResp.Fields.CircRecordList {
-		coBarcode := rec.Fields.Item.Fields.Barcode
-		if req.Barcode == "all" || coBarcode == req.Barcode {
-			log.Printf("INFO: issue renew request for %s", coBarcode)
-			requested = true
-			payload := struct {
-				Barcode string `json:"itemBarcode"`
-			}{
-				Barcode: coBarcode,
-			}
-			rawRenewResp, rawErr := svc.sirsiPost(svc.HTTPClient, "/circulation/circRecord/renew", payload)
-			if rawErr != nil {
-				log.Printf("INFO: unable to renew %s: %s", coBarcode, rawErr.Message)
-				parsedErr, err := svc.handleSirsiErrorResponse(rawErr)
-				if err != nil {
-					log.Printf("ERROR: unable to parse sirsi failed response: %s", err.Message)
-					out.Results = append(out.Results, renewResponseRec{
-						Barcode: coBarcode, Success: false, Message: rawErr.Message,
-					})
-				} else {
-					reason := parsedErr.MessageList[0].Message
-					log.Printf("INFO: renew %s fail reason: %s", coBarcode, reason)
-					out.Results = append(out.Results, renewResponseRec{
-						Barcode: coBarcode, Success: false, Message: reason,
-					})
-				}
-			} else {
-				log.Printf("INFO: raw renew resp: %s", rawRenewResp)
-				out.RenewedCount++
-				out.Results = append(out.Results, renewResponseRec{Barcode: coBarcode, Success: true})
-			}
+	for _, renewBC := range req.Barcodes {
+		log.Printf("INFO: issue renew request for %s", renewBC)
+		payload := struct {
+			Barcode string `json:"itemBarcode"`
+		}{
+			Barcode: renewBC,
 		}
-	}
-
-	if requested == false && req.Barcode != "all" {
-		out.Results = append(out.Results, renewResponseRec{
-			Barcode: req.Barcode,
-			Success: false,
-			Message: fmt.Sprintf("Item %s not found", req.Barcode)})
+		fields := "circRecord{checkOutDate,dueDate,renewalDate,status,recallDueDate}"
+		rawRenewResp, rawErr := svc.sirsiPost(svc.HTTPClient, fmt.Sprintf("/circulation/circRecord/renew?includeFields=%s", fields), payload)
+		if rawErr != nil {
+			log.Printf("INFO: unable to renew %s: %s", renewBC, rawErr.Message)
+			parsedErr, err := svc.handleSirsiErrorResponse(rawErr)
+			if err != nil {
+				log.Printf("ERROR: unable to parse sirsi failed response: %s", err.Message)
+				out.Results = append(out.Results, renewResponseRec{
+					Barcode: renewBC, Success: false, Message: rawErr.Message,
+				})
+			} else {
+				reason := parsedErr.MessageList[0].Message
+				log.Printf("INFO: renew %s fail reason: %s", renewBC, reason)
+				out.Results = append(out.Results, renewResponseRec{
+					Barcode: renewBC, Success: false, Message: reason,
+				})
+			}
+		} else {
+			log.Printf("INFO: raw renew resp: %s", rawRenewResp)
+			var renewResp sirsiRenewResponse
+			out.RenewedCount++
+			respRec := renewResponseRec{Barcode: renewBC, Success: true}
+			parseErr := json.Unmarshal(rawRenewResp, &renewResp)
+			if parseErr != nil {
+				log.Printf("ERROR: unable to parse renew %s response: %s", renewBC, parseErr.Error())
+			} else {
+				respRec.DueDate = renewResp.CircRecord.Fields.DueDate
+				respRec.RenewDate = renewResp.CircRecord.Fields.RenewalDate
+				respRec.RecallDueDate = renewResp.CircRecord.Fields.RecallDueDate
+				respRec.Status = renewResp.CircRecord.Fields.Status
+			}
+			out.Results = append(out.Results, respRec)
+		}
 	}
 
 	c.JSON(http.StatusOK, out)
