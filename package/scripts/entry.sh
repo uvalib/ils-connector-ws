@@ -14,6 +14,8 @@ cd bin; ./ils-connector-ws \
   -sirsiscript ${SIRSI_SCRIPT_URL} \
   -sirsiurl ${SIRSI_WEB_SERVICES_BASE} \
   -sirsiuser ${SIRSI_USER} \
+  -solr ${V4_SOLR_URL} \
+  -core ${V4_SOLR_CORE} \
   -userinfo ${USERINFO_URL} \
   -virgo ${SEARCH_URL}
 

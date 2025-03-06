@@ -75,6 +75,7 @@ func (sess *sirsiSessionData) isExpired() bool {
 type serviceContext struct {
 	Version        string
 	SirsiConfig    sirsiConfig
+	Solr           solrConfig
 	SirsiSession   sirsiSessionData
 	Locations      locationContext
 	Libraries      libraryContext
@@ -98,6 +99,7 @@ func (re *requestError) string() string {
 func intializeService(version string, cfg *serviceConfig) (*serviceContext, error) {
 	ctx := serviceContext{Version: version,
 		SirsiConfig: cfg.Sirsi,
+		Solr:        cfg.Solr,
 		Secrets:     cfg.Secrets,
 		PDAURL:      cfg.PDAURL,
 		VirgoURL:    cfg.VirgoURL,
@@ -347,4 +349,15 @@ func loadDataFile(filename string) []string {
 		return make([]string, 0)
 	}
 	return strings.Split(string(bytes), "\n")
+}
+
+func listContains(list []string, tgt string) bool {
+	found := false
+	for _, val := range list {
+		if val == tgt {
+			found = true
+			break
+		}
+	}
+	return found
 }

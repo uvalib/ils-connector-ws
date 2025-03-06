@@ -19,10 +19,16 @@ type secretsConfig struct {
 	UserJWTKey  string
 }
 
+type solrConfig struct {
+	URL  string
+	Core string
+}
+
 type serviceConfig struct {
 	Port        int
 	Secrets     secretsConfig
 	Sirsi       sirsiConfig
+	Solr        solrConfig
 	VirgoURL    string
 	PDAURL      string
 	UserInfoURL string
@@ -43,6 +49,10 @@ func loadConfiguration() *serviceConfig {
 	flag.StringVar(&cfg.Sirsi.Password, "sirsipass", "", "Sirsi password")
 	flag.StringVar(&cfg.Sirsi.ClientID, "sirsiclient", "", "Sirsi client ID")
 	flag.StringVar(&cfg.Sirsi.Library, "sirsilibrary", "UVA-LIB", "Sirsi Library ID")
+
+	// Solr config
+	flag.StringVar(&cfg.Solr.URL, "solr", "", "Solr URL")
+	flag.StringVar(&cfg.Solr.Core, "core", "test_core", "Solr core")
 
 	// external services
 	flag.StringVar(&cfg.VirgoURL, "virgo", "", "URL to Virgo")
@@ -81,6 +91,9 @@ func loadConfiguration() *serviceConfig {
 	if cfg.UserInfoURL == "" {
 		log.Fatal("userinfo param is required")
 	}
+	if cfg.Solr.URL == "" || cfg.Solr.Core == "" {
+		log.Fatal("solr and core params are required")
+	}
 
 	log.Printf("[CONFIG] port          = [%d]", cfg.Port)
 	log.Printf("[CONFIG] sirsiurl      = [%s]", cfg.Sirsi.WebServicesURL)
@@ -88,6 +101,8 @@ func loadConfiguration() *serviceConfig {
 	log.Printf("[CONFIG] sirsiuser     = [%s]", cfg.Sirsi.User)
 	log.Printf("[CONFIG] sirsiclient   = [%s]", cfg.Sirsi.ClientID)
 	log.Printf("[CONFIG] sirsilibrary  = [%s]", cfg.Sirsi.Library)
+	log.Printf("[CONFIG] solr          = [%s]", cfg.Solr.URL)
+	log.Printf("[CONFIG] core          = [%s]", cfg.Solr.Core)
 	log.Printf("[CONFIG] virgo         = [%s]", cfg.VirgoURL)
 	log.Printf("[CONFIG] pda           = [%s]", cfg.PDAURL)
 	log.Printf("[CONFIG] userinfo      = [%s]", cfg.UserInfoURL)
