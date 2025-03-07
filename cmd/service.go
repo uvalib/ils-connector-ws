@@ -73,18 +73,22 @@ func (sess *sirsiSessionData) isExpired() bool {
 }
 
 type serviceContext struct {
-	Version        string
-	SirsiConfig    sirsiConfig
-	Solr           solrConfig
-	SirsiSession   sirsiSessionData
-	Locations      locationContext
-	Libraries      libraryContext
-	Secrets        secretsConfig
-	VirgoURL       string
-	PDAURL         string
-	UserInfoURL    string
-	HTTPClient     *http.Client
-	SlowHTTPClient *http.Client
+	Version            string
+	SirsiConfig        sirsiConfig
+	Solr               solrConfig
+	SMTP               smtpConfig
+	HSILLiadURL        string
+	CourseReserveEmail string
+	LawReserveEmail    string
+	SirsiSession       sirsiSessionData
+	Locations          locationContext
+	Libraries          libraryContext
+	Secrets            secretsConfig
+	VirgoURL           string
+	PDAURL             string
+	UserInfoURL        string
+	HTTPClient         *http.Client
+	SlowHTTPClient     *http.Client
 }
 
 type requestError struct {
@@ -98,12 +102,16 @@ func (re *requestError) string() string {
 
 func intializeService(version string, cfg *serviceConfig) (*serviceContext, error) {
 	ctx := serviceContext{Version: version,
-		SirsiConfig: cfg.Sirsi,
-		Solr:        cfg.Solr,
-		Secrets:     cfg.Secrets,
-		PDAURL:      cfg.PDAURL,
-		VirgoURL:    cfg.VirgoURL,
-		UserInfoURL: cfg.UserInfoURL,
+		SirsiConfig:        cfg.Sirsi,
+		Solr:               cfg.Solr,
+		SMTP:               cfg.SMTP,
+		HSILLiadURL:        cfg.HSILLiadURL,
+		CourseReserveEmail: cfg.CourseReserveEmail,
+		LawReserveEmail:    cfg.LawReserveEmail,
+		Secrets:            cfg.Secrets,
+		PDAURL:             cfg.PDAURL,
+		VirgoURL:           cfg.VirgoURL,
+		UserInfoURL:        cfg.UserInfoURL,
 	}
 
 	log.Printf("INFO: create http client for external service calls")
