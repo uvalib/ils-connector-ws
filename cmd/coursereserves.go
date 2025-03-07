@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -39,10 +40,54 @@ type sirsiBibSearchResp struct {
 	Result       []sirsiSearchRec `json:"result"`
 }
 
+type searchHit struct {
+	ID          string   `json:"id"`
+	Title       []string `json:"title_a"`
+	Author      []string `json:"work_primary_author_a"`
+	CallNumber  []string `json:"call_number_a"`
+	ReserveInfo []string `json:"reserve_id_course_name_a"`
+}
+
+type searchReservesResponse struct {
+	Response struct {
+		Docs     []searchHit `json:"docs,omitempty"`
+		NumFound int         `json:"numFound,omitempty"`
+	} `json:"response,omitempty"`
+}
+
 type validateRespRec struct {
 	ID      string `json:"id"`
 	Reserve bool   `json:"reserve"`
 	IsVideo bool   `json:"is_video"`
+}
+
+type reserveItem struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Author     string `json:"author"`
+	CallNumber string `json:"callNumber"`
+}
+
+type courseItems struct {
+	CourseName string        `json:"courseName"`
+	CourseID   string        `json:"courseID"`
+	Items      []reserveItem `json:"items"`
+}
+
+type instructorSearchResponse struct {
+	InstructorName string         `json:"instructorName"`
+	Courses        []*courseItems `json:"courses"`
+}
+
+type instructorItems struct {
+	InstructorName string        `json:"instructorName"`
+	Items          []reserveItem `json:"items"`
+}
+
+type courseSearchResponse struct {
+	CourseName  string             `json:"courseName"`
+	CourseID    string             `json:"courseID"`
+	Instructors []*instructorItems `json:"instructors"`
 }
 
 func (svc *serviceContext) validateCourseReserves(c *gin.Context) {
@@ -55,8 +100,7 @@ func (svc *serviceContext) validateCourseReserves(c *gin.Context) {
 		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
-	v4Claims, _ := getVirgoClaims(c)
-	log.Printf("INFO: patron %s requests validation course reserve for %v", v4Claims.UserID, req.Items)
+	log.Printf("INFO: validate course reserves %v", req.Items)
 
 	idMap := make(map[string]string)
 	var bits []string
@@ -143,4 +187,209 @@ func (svc *serviceContext) validateCourseReserves(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, out)
+}
+
+func (svc *serviceContext) searchCourseReserves(c *gin.Context) {
+	searchType := c.Query("type")
+	if searchType != "instructor_name" && searchType != "course_id" {
+		log.Printf("ERROR: invalid course reserves search type: %s", searchType)
+		c.String(http.StatusBadRequest, fmt.Sprintf("%s is not a valid search type", searchType))
+		return
+	}
+	rawQueryStr := c.Query("query")
+	queryStr := rawQueryStr
+	if strings.Contains(queryStr, "*") == false {
+		queryStr += "*"
+	}
+
+	log.Printf("INFO: search [%s] course reserves for [%s]", searchType, queryStr)
+
+	fl := url.QueryEscape("id,reserve_id_course_name_a,title_a,work_primary_author_a,call_number_a")
+	queryParam := "reserve_id_a"
+	if searchType == "instructor_name" {
+		queryParam = "reserve_instructor_tl"
+		queryStr = url.PathEscape(queryStr)
+		// working format example: q=reserve_instructor_tl:beardsley%2C%20s*
+	} else {
+		// course IDs are in all upper case. force query to match
+		queryStr = strings.ToUpper(queryStr)
+		if strings.Index(queryStr, " ") != -1 {
+			queryStr = strings.ReplaceAll(queryStr, " ", "\\ ")
+			queryStr = url.QueryEscape(queryStr)
+		}
+	}
+
+	queryParam = fmt.Sprintf("%s:%s", queryParam, queryStr)
+	solrURL := fmt.Sprintf("select?fl=%s&q=%s&rows=5000", fl, queryParam)
+
+	respBytes, solrErr := svc.solrGet(solrURL)
+	if solrErr != nil {
+		log.Printf("ERROR: solr course reserves search failed: %s", solrErr.Message)
+		// c.String(solrErr
+		return
+	}
+	var solrResp searchReservesResponse
+	if err := json.Unmarshal(respBytes, &solrResp); err != nil {
+		log.Printf("ERROR: unable to parse solr response: %s.", err.Error())
+	}
+	log.Printf("INFO: found [%d] matches", solrResp.Response.NumFound)
+
+	if searchType == "instructor_name" {
+		reserves := extractInstructorReserves(rawQueryStr, solrResp.Response.Docs)
+		c.JSON(http.StatusOK, reserves)
+		return
+	}
+
+	reserves := extractCourseReserves(rawQueryStr, solrResp.Response.Docs)
+	c.JSON(http.StatusOK, reserves)
+}
+
+func extractCourseReserves(tgtCourseID string, docs []searchHit) []*courseSearchResponse {
+	log.Printf("INFO: extract instructor course reserves for %s", tgtCourseID)
+	out := make([]*courseSearchResponse, 0)
+	for _, doc := range docs {
+		for _, reserve := range doc.ReserveInfo {
+			// format: courseID | courseName | instructor
+			reserveInfo := strings.Split(reserve, "|")
+			courseID := reserveInfo[0]
+			courseName := reserveInfo[1]
+			instructor := reserveInfo[2]
+
+			if strings.Index(strings.ToLower(courseID), strings.ToLower(tgtCourseID)) != 0 {
+				continue
+			}
+
+			log.Printf("INFO: process item %s reserve %s", doc.ID, reserve)
+			item := reserveItem{ID: doc.ID, Title: doc.Title[0],
+				Author:     strings.Join(doc.Author, "; "),
+				CallNumber: strings.Join(doc.CallNumber, ", ")}
+
+			// find existing course
+			var tgtCourse *courseSearchResponse
+			for _, csr := range out {
+				if csr.CourseID == courseID {
+					log.Printf("INFO: found existing record for course %s", courseID)
+					tgtCourse = csr
+					break
+				}
+			}
+			if tgtCourse == nil {
+				log.Printf("INFO: create new record for course %s", courseID)
+				newCourse := courseSearchResponse{CourseID: courseID, CourseName: courseName}
+				tgtCourse = &newCourse
+				out = append(out, tgtCourse)
+			}
+
+			found := false
+			for _, inst := range tgtCourse.Instructors {
+				if inst.InstructorName == instructor {
+					found = true
+					if itemExists(inst.Items, item.ID) == false {
+						log.Printf("INFO: append item to existing instructor...")
+						inst.Items = append(inst.Items, item)
+						break
+					}
+				}
+			}
+
+			if found == false {
+				log.Printf("INFO: create new record for instructor %s", instructor)
+				newInst := instructorItems{InstructorName: instructor}
+				newInst.Items = append(newInst.Items, item)
+				tgtCourse.Instructors = append(tgtCourse.Instructors, &newInst)
+				log.Printf("INFO: new instructor: %v", newInst)
+			}
+		}
+	}
+
+	for _, csr := range out {
+		sort.Slice(csr.Instructors, func(i, j int) bool {
+			return csr.Instructors[i].InstructorName < csr.Instructors[j].InstructorName
+		})
+		for _, inst := range csr.Instructors {
+			sort.Slice(inst.Items, func(i, j int) bool {
+				return inst.Items[i].Title < inst.Items[j].Title
+			})
+		}
+	}
+
+	return out
+}
+
+func extractInstructorReserves(tgtInstructor string, docs []searchHit) []*instructorSearchResponse {
+	log.Printf("INFO: extract course course reserves instructor %s", tgtInstructor)
+	out := make([]*instructorSearchResponse, 0)
+	for _, doc := range docs {
+		for _, reserve := range doc.ReserveInfo {
+			// format: courseID | courseName | instructor
+			reserveInfo := strings.Split(reserve, "|")
+			courseID := reserveInfo[0]
+			courseName := reserveInfo[1]
+			instructor := reserveInfo[2]
+			if strings.Index(strings.ToLower(instructor), strings.ToLower(tgtInstructor)) != 0 {
+				continue
+			}
+
+			log.Printf("INFO: process item %s reserve %s", doc.ID, reserve)
+			item := reserveItem{ID: doc.ID, Title: doc.Title[0],
+				Author:     strings.Join(doc.Author, "; "),
+				CallNumber: strings.Join(doc.CallNumber, ", ")}
+
+			// find existing instructor
+			var tgtInstructor *instructorSearchResponse
+			for _, isr := range out {
+				if isr.InstructorName == instructor {
+					tgtInstructor = isr
+					break
+				}
+			}
+			if tgtInstructor == nil {
+				// log.Printf("INFO: create new record for instructor %s", instructor)
+				newInstructor := instructorSearchResponse{InstructorName: instructor}
+				tgtInstructor = &newInstructor
+				out = append(out, tgtInstructor)
+			}
+
+			found := false
+			for _, course := range tgtInstructor.Courses {
+				if course.CourseID == courseID {
+					found = true
+					if itemExists(course.Items, item.ID) == false {
+						// log.Printf("INFO: append item to existing course...")
+						course.Items = append(course.Items, item)
+						break
+					}
+				}
+			}
+
+			if found == false {
+				// log.Printf("INFO: create new record for course %s", courseID)
+				newCourse := courseItems{CourseID: courseID, CourseName: courseName}
+				newCourse.Items = append(newCourse.Items, item)
+				tgtInstructor.Courses = append(tgtInstructor.Courses, &newCourse)
+			}
+		}
+	}
+
+	for _, isr := range out {
+		sort.Slice(isr.Courses, func(i, j int) bool {
+			return isr.Courses[i].CourseID < isr.Courses[j].CourseID
+		})
+		for _, crs := range isr.Courses {
+			sort.Slice(crs.Items, func(i, j int) bool {
+				return crs.Items[i].Title < crs.Items[j].Title
+			})
+		}
+	}
+
+	return out
+}
+
+func itemExists(items []reserveItem, id string) bool {
+	for _, i := range items {
+		if i.ID == id {
+			return true
+		}
+	}
+	return false
 }

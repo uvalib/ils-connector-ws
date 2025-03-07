@@ -46,8 +46,8 @@ func main() {
 	// TODO move API from v4-availability-ws here
 
 	// course reserves management
-	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.validateCourseReserves)
-	// TODO move search and other reserves functionality from avail service here
+	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.validateCourseReserves)
+	router.GET("/course_reserves/search", svc.sirsiAuthMiddleware, svc.searchCourseReserves)
 
 	// dibs management
 	router.PUT("/dibs/indibs/:barcode", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.setBarcodeInDiBS)
