@@ -46,8 +46,7 @@ func (svc *serviceContext) updateMetadataRights(c *gin.Context) {
 	// NOTE: the cat_key param will be in the form u2442709 but
 	// the sirsi API calls only use the numeric portion. Strip the leading 'u'
 	catKey := c.Param("cat_key")
-	re := regexp.MustCompile("^u")
-	cleanKey := re.ReplaceAllString(catKey, "")
+	cleanKey := cleanCatKey(catKey)
 
 	var updateReq struct {
 		ResourceURI string `json:"resource_uri"` // virgo URL, like https://search.lib.virginia.edu/sources/uva_library/items/u2442709

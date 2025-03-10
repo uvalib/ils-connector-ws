@@ -46,6 +46,7 @@ func main() {
 	// TODO move API from v4-availability-ws here
 
 	// course reserves management
+	router.POST("/course_reserves", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.refreshDataMiddleware, svc.createCourseReserves)
 	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.validateCourseReserves)
 	router.GET("/course_reserves/search", svc.sirsiAuthMiddleware, svc.searchCourseReserves)
 

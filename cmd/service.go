@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,12 +11,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
 	"github.com/uvalib/virgo4-jwt/v4jwt"
+	"gopkg.in/gomail.v2"
 )
 
 type sirsiStaffLoginReq struct {
@@ -98,6 +101,15 @@ type requestError struct {
 
 func (re *requestError) string() string {
 	return fmt.Sprintf("%d: %s", re.StatusCode, re.Message)
+}
+
+type emailRequest struct {
+	Subject string
+	To      []string
+	ReplyTo string
+	CC      string
+	From    string
+	Body    string
 }
 
 func intializeService(version string, cfg *serviceConfig) (*serviceContext, error) {
@@ -321,6 +333,42 @@ func (svc *serviceContext) handleSirsiErrorResponse(errResp *requestError) (*sir
 	return nil, errResp
 }
 
+func (svc *serviceContext) sendEmail(request *emailRequest) error {
+	mail := gomail.NewMessage()
+	mail.SetHeader("MIME-version", "1.0")
+	mail.SetHeader("Content-Type", "text/plain; charset=\"UTF-8\"")
+	mail.SetHeader("Subject", request.Subject)
+	mail.SetHeader("To", request.To...)
+	mail.SetHeader("From", request.From)
+	if request.ReplyTo != "" {
+		mail.SetHeader("Reply-To", request.ReplyTo)
+	}
+	if len(request.CC) > 0 {
+		mail.SetHeader("Cc", request.CC)
+	}
+	mail.SetBody("text/plain", request.Body)
+
+	if svc.SMTP.DevMode {
+		log.Printf("Email is in dev mode. Logging message instead of sending")
+		log.Printf("==================================================")
+		mail.WriteTo(log.Writer())
+		log.Printf("==================================================")
+		return nil
+	}
+
+	log.Printf("Sending %s email to %s", request.Subject, strings.Join(request.To, ","))
+	if svc.SMTP.Pass != "" {
+		dialer := gomail.Dialer{Host: svc.SMTP.Host, Port: svc.SMTP.Port, Username: svc.SMTP.User, Password: svc.SMTP.Pass}
+		dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+		return dialer.DialAndSend(mail)
+	}
+
+	log.Printf("Sending email with no auth")
+	dialer := gomail.Dialer{Host: svc.SMTP.Host, Port: svc.SMTP.Port}
+	dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+	return dialer.DialAndSend(mail)
+}
+
 func getVirgoClaims(c *gin.Context) (*v4jwt.V4Claims, error) {
 	claims, exist := c.Get("claims")
 	if exist == false {
@@ -348,6 +396,11 @@ func (svc *serviceContext) mintUserServiceJWT() string {
 		return ""
 	}
 	return signedJWT
+}
+
+func cleanCatKey(catKey string) string {
+	re := regexp.MustCompile("^u")
+	return re.ReplaceAllString(catKey, "")
 }
 
 func loadDataFile(filename string) []string {

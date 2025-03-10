@@ -147,29 +147,11 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		return
 	}
 
-	re := regexp.MustCompile("^u")
-	cleanKey := re.ReplaceAllString(catKey, "")
 	log.Printf("INFO: get availability for %s", catKey)
-	fields := "boundWithList{*},bib,callList{dispCallNumber,volumetric,shadowed,library{description},"
-	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
-	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
-	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
+	bibResp, sirsiErr := svc.getSirsiItem(catKey)
 	if sirsiErr != nil {
-		if sirsiErr.StatusCode == 404 {
-			log.Printf("INFO: %s was not found", catKey)
-			c.String(http.StatusNotFound, fmt.Sprintf("%s not found", catKey))
-		} else {
-			log.Printf("ERROR: unable to get bib info for %s: %s", catKey, sirsiErr.Message)
-			c.String(sirsiErr.StatusCode, sirsiErr.Message)
-		}
-		return
-	}
-
-	var bibResp sirsiBibResponse
-	parseErr := json.Unmarshal(sirsiRaw, &bibResp)
-	if parseErr != nil {
-		log.Printf("ERROR: unable to parse sirsi bib response for %s: %s", catKey, parseErr.Error())
-		c.String(http.StatusInternalServerError, parseErr.Error())
+		log.Printf("ERROR: get sirsi item %s failed: %s", catKey, sirsiErr.string())
+		c.String(sirsiErr.StatusCode, sirsiErr.Message)
 		return
 	}
 
@@ -191,7 +173,28 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []availItem {
+func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requestError) {
+	cleanKey := cleanCatKey(catKey)
+	fields := "boundWithList{*},bib,callList{dispCallNumber,volumetric,shadowed,library{description},"
+	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
+	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
+	if sirsiErr != nil {
+		return nil, sirsiErr
+	}
+
+	var bibResp sirsiBibResponse
+	parseErr := json.Unmarshal(sirsiRaw, &bibResp)
+	if parseErr != nil {
+		re := requestError{
+			StatusCode: http.StatusInternalServerError,
+			Message:    fmt.Sprintf("unable to parse sirsi response: %s", parseErr.Error())}
+		return nil, &re
+	}
+	return &bibResp, nil
+}
+
+func (svc *serviceContext) processAvailabilityItems(bibResp *sirsiBibResponse) []availItem {
 	log.Printf("INFO: process items for %s", bibResp.Key)
 	out := make([]availItem, 0)
 	for _, callRec := range bibResp.Fields.CallList {
@@ -249,7 +252,7 @@ func (svc *serviceContext) processAvailabilityItems(bibResp sirsiBibResponse) []
 	return out
 }
 
-func (svc *serviceContext) processBoundWithItems(bibResp sirsiBibResponse) []boundWithRec {
+func (svc *serviceContext) processBoundWithItems(bibResp *sirsiBibResponse) []boundWithRec {
 	// sample: sources/uva_library/items/u3315175
 	log.Printf("INFO: process bound with for %s", bibResp.Key)
 	out := make([]boundWithRec, 0)

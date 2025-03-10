@@ -1,12 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -90,6 +91,53 @@ type courseSearchResponse struct {
 	Instructors []*instructorItems `json:"instructors"`
 }
 
+type requestParams struct {
+	OnBehalfOf      string `json:"onBehalfOf"`
+	InstructorName  string `json:"instructorName"`
+	InstructorEmail string `json:"instructorEmail"`
+	Name            string `json:"name"`
+	Email           string `json:"email"`
+	Course          string `json:"course"`
+	Semester        string `json:"semester"`
+	Library         string `json:"library"`
+	Period          string `json:"period"`
+	LMS             string `json:"lms"`
+	OtherLMS        string `json:"otherLMS"`
+}
+
+type availabilityInfo struct {
+	Library      string `json:"library"`
+	Location     string `json:"location"`
+	Availability string `json:"availability"`
+	CallNumber   string `json:"callNumber"`
+}
+
+type requestItem struct {
+	Pool             string             `json:"pool"`
+	IsVideo          bool               `json:"isVideo"`
+	CatalogKey       string             `json:"catalogKey"`
+	CallNumber       []string           `json:"callNumber"`
+	Title            string             `json:"title"`
+	Author           string             `json:"author"`
+	Period           string             `json:"period"`
+	Notes            string             `json:"notes"`
+	AudioLanguage    string             `json:"audioLanguage"`
+	Subtitles        string             `json:"subtitles"`
+	SubtitleLanguage string             `json:"subtitleLanguage"`
+	VirgoURL         string             `json:"-"`
+	Availability     []availabilityInfo `json:"-"`
+}
+
+type reserveRequest struct {
+	VirgoURL string
+	UserID   string         `json:"userID"`
+	Request  requestParams  `json:"request"`
+	Items    []requestItem  `json:"items"` // these are the items sent from the client
+	Video    []*requestItem `json:"-"`     // populated during processing from Items, includes avail
+	NonVideo []*requestItem `json:"-"`     // populated during processing from Items, includes avail
+	MaxAvail int            `json:"-"`
+}
+
 func (svc *serviceContext) validateCourseReserves(c *gin.Context) {
 	var req struct {
 		Items []string `json:"items"`
@@ -104,9 +152,8 @@ func (svc *serviceContext) validateCourseReserves(c *gin.Context) {
 
 	idMap := make(map[string]string)
 	var bits []string
-	keyCleanRegEx := regexp.MustCompile("^u")
 	for _, key := range req.Items {
-		cleanKey := keyCleanRegEx.ReplaceAllString(key, "")
+		cleanKey := cleanCatKey(key)
 		idMap[cleanKey] = key
 		bits = append(bits, fmt.Sprintf("%s{CKEY}", cleanKey))
 	}
@@ -189,6 +236,103 @@ func (svc *serviceContext) validateCourseReserves(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
+func (svc *serviceContext) createCourseReserves(c *gin.Context) {
+	var reserveReq reserveRequest
+	err := c.ShouldBindJSON(&reserveReq)
+	if err != nil {
+		log.Printf("ERROR: Unable to parse request: %s", err.Error())
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+	reserveReq.VirgoURL = svc.VirgoURL
+	reserveReq.MaxAvail = -1
+	reserveReq.Video = make([]*requestItem, 0)
+	reserveReq.NonVideo = make([]*requestItem, 0)
+	v4Claims, _ := getVirgoClaims(c)
+	log.Printf("INFO: %s requests creation of course reserves", v4Claims.UserID)
+
+	// Iterate thru all of the requested items, pull availability and stuff it into
+	// an array based on type. Separate emails will go out for video / non-video
+	for _, item := range reserveReq.Items {
+		item.VirgoURL = fmt.Sprintf("%s/sources/%s/items/%s", svc.VirgoURL, item.Pool, item.CatalogKey)
+		avail, err := svc.getCourseReserveItemAvailability(item.CatalogKey)
+		if err != nil {
+			log.Printf("WARN: %s, ", err.Error())
+		}
+		item.Availability = avail
+		if len(item.Availability) > reserveReq.MaxAvail {
+			reserveReq.MaxAvail = len(item.Availability)
+		}
+		if item.IsVideo {
+			log.Printf("INFO: %s : %s is a video", item.CatalogKey, item.Title)
+			reserveReq.Video = append(reserveReq.Video, &item)
+		} else {
+			log.Printf("INFO: %s : %s is not a video", item.CatalogKey, item.Title)
+			reserveReq.NonVideo = append(reserveReq.NonVideo, &item)
+		}
+	}
+
+	funcs := template.FuncMap{"add": func(x, y int) int {
+		return x + y
+	}}
+
+	templates := [2]string{"reserves.txt", "reserves_video.txt"}
+	for _, templateFile := range templates {
+		if templateFile == "reserves.txt" && len(reserveReq.NonVideo) == 0 {
+			continue
+		}
+		if templateFile == "reserves_video.txt" && len(reserveReq.Video) == 0 {
+			continue
+		}
+		var renderedEmail bytes.Buffer
+		tpl := template.Must(template.New(templateFile).Funcs(funcs).ParseFiles(fmt.Sprintf("templates/%s", templateFile)))
+		err = tpl.Execute(&renderedEmail, reserveReq)
+		if err != nil {
+			log.Printf("ERROR: Unable to render %s: %s", templateFile, err.Error())
+			c.String(http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		log.Printf("Generate SMTP message for %s", templateFile)
+		// NOTES for recipient: For any reserve library location other than Law, the email should be sent to
+		// svc.CourseReserveEmail with the from address of the patron submitting the request.
+		// For Law it should send the email to svc.LawReserveEmail AND the patron
+		to := []string{}
+		cc := ""
+		from := svc.SMTP.Sender
+		subjectName := reserveReq.Request.Name
+		if reserveReq.Request.Library == "law" {
+			log.Printf("The reserve library is law. Send request to law %s and requestor %s from sender %s",
+				svc.LawReserveEmail, reserveReq.Request.Email, svc.SMTP.Sender)
+			to = append(to, svc.LawReserveEmail)
+			to = append(to, reserveReq.Request.Email)
+			if reserveReq.Request.InstructorEmail != "" {
+				to = append(to, reserveReq.Request.InstructorEmail)
+			}
+		} else {
+			log.Printf("The reserve library is not law.")
+			to = append(to, svc.CourseReserveEmail)
+			if reserveReq.Request.InstructorEmail != "" {
+				from = reserveReq.Request.InstructorEmail
+				cc = reserveReq.Request.Email
+				subjectName = reserveReq.Request.InstructorName
+			} else {
+				from = reserveReq.Request.Email
+			}
+		}
+
+		subject := fmt.Sprintf("%s - %s: %s", reserveReq.Request.Semester, subjectName, reserveReq.Request.Course)
+		eRequest := emailRequest{Subject: subject, To: to, CC: cc, From: from, Body: renderedEmail.String()}
+		sendErr := svc.sendEmail(&eRequest)
+		if sendErr != nil {
+			log.Printf("ERROR: Unable to send reserve email: %s", sendErr.Error())
+			c.String(http.StatusInternalServerError, sendErr.Error())
+			return
+		}
+	}
+	c.String(http.StatusOK, "Reserve emails sent")
+}
+
 func (svc *serviceContext) searchCourseReserves(c *gin.Context) {
 	searchType := c.Query("type")
 	if searchType != "instructor_name" && searchType != "course_id" {
@@ -242,6 +386,33 @@ func (svc *serviceContext) searchCourseReserves(c *gin.Context) {
 
 	reserves := extractCourseReserves(rawQueryStr, solrResp.Response.Docs)
 	c.JSON(http.StatusOK, reserves)
+}
+
+func (svc *serviceContext) getCourseReserveItemAvailability(catKey string) ([]availabilityInfo, error) {
+	log.Printf("INFO: check if item %s is available for course reserve", catKey)
+	bibResp, sirsiErr := svc.getSirsiItem(catKey)
+	if sirsiErr != nil {
+		return nil, fmt.Errorf("get sirsi item availability failed %s", sirsiErr.string())
+	}
+	availItems := svc.processAvailabilityItems(bibResp)
+
+	out := make([]availabilityInfo, 0)
+	for _, availItem := range availItems {
+		avail := availabilityInfo{}
+		for _, field := range availItem.Fields {
+			if field.Name == "Library" {
+				avail.Library = field.Value
+			} else if field.Name == "Availability" {
+				avail.Availability = field.Value
+			} else if field.Name == "Current Location" {
+				avail.Location = field.Value
+			} else if field.Name == "Call Number" {
+				avail.CallNumber = field.Value
+			}
+		}
+		out = append(out, avail)
+	}
+	return out, nil
 }
 
 func extractCourseReserves(tgtCourseID string, docs []searchHit) []*courseSearchResponse {
