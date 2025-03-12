@@ -66,9 +66,10 @@ type solrResponse struct {
 	} `json:"response,omitempty"`
 }
 
-func (svc *serviceContext) getSolrDoc(id string) (*solrDocument, error) {
+func (svc *serviceContext) getSolrDoc(catKey string) (*solrDocument, error) {
+	log.Printf("INFO: get solr doc for %s", catKey)
 	fields := solrDocument{}.fieldList()
-	solrPath := fmt.Sprintf(`select?fl=%s,&q=id%%3A%s`, fields, id)
+	solrPath := fmt.Sprintf(`select?fl=%s,&q=id%%3A%s`, fields, catKey)
 
 	respBytes, solrErr := svc.solrGet(solrPath)
 	if solrErr != nil {
@@ -79,10 +80,10 @@ func (svc *serviceContext) getSolrDoc(id string) (*solrDocument, error) {
 		return nil, fmt.Errorf("unable to parse solr response: %s", err.Error())
 	}
 	if solrResp.Response.NumFound == 0 {
-		return nil, fmt.Errorf("no solr document found for %s", id)
+		return nil, fmt.Errorf("no solr document found for %s", catKey)
 	}
 	if solrResp.Response.NumFound > 1 {
-		log.Printf("WARNING: more than one record found for the id: %s", id)
+		log.Printf("WARNING: more than one record found for the id: %s", catKey)
 	}
 	solrDoc := solrResp.Response.Docs[0]
 	return &solrDoc, nil

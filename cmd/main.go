@@ -43,7 +43,6 @@ func main() {
 	// availability
 	router.GET("/availability/list", svc.sirsiAuthMiddleware, svc.refreshDataMiddleware, svc.getAvailabilityList)
 	router.GET("/availability/:cat_key", svc.refreshDataMiddleware, svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.getAvailability)
-	// TODO move API from v4-availability-ws here
 
 	// course reserves management
 	router.POST("/course_reserves", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.refreshDataMiddleware, svc.createCourseReserves)
