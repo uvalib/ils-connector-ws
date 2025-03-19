@@ -9,6 +9,7 @@ require (
 	github.com/gin-contrib/gzip v1.2.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
+	github.com/google/go-querystring v1.1.0
 	github.com/uvalib/virgo4-jwt v1.2.1
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )

@@ -124,8 +124,8 @@ type requestItem struct {
 	AudioLanguage    string             `json:"audioLanguage"`
 	Subtitles        string             `json:"subtitles"`
 	SubtitleLanguage string             `json:"subtitleLanguage"`
-	VirgoURL         string             `json:"-"`
-	Availability     []availabilityInfo `json:"-"`
+	VirgoURL         string             `json:"-"` // TODO why is this here if not used
+	Availability     []availabilityInfo `json:"-"` // TODO why is this here if not used
 }
 
 type reserveRequest struct {

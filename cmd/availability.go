@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/go-querystring/query"
 )
 
 type availabilityListResponse struct {
@@ -97,7 +99,6 @@ type availItem struct {
 	OnShelf           bool             `json:"on_shelf"`
 	Unavailable       bool             `json:"unavailable"`
 	Notice            string           `json:"notice"`
-	Fields            []availItemField `json:"fields"`
 	Library           string           `json:"library"`
 	LibraryID         string           `json:"library_id"`
 	CurrentLocation   string           `json:"current_location"`
@@ -106,7 +107,8 @@ type availItem struct {
 	CallNumber        string           `json:"call_number"` // NOTE: copy number as appened here as (copy n)
 	IsVideo           bool             `json:"is_video"`
 	Volume            string           `json:"volume"`
-	NonCirculating    bool             `json:"non_circulating"`
+	SCNotes           string           `json:"special_collections_location"` // added from solr doc; never pulled from sirsi
+	Fields            []availItemField `json:"-"`                            // used internally for course reserves TODO WHY?
 }
 
 func (ai *availItem) toHoldableItem() holdableItem {
@@ -130,7 +132,6 @@ type boundWithRec struct {
 
 type availabilityResponse struct {
 	TitleID        string          `json:"title_id"`
-	Columns        []string        `json:"columns"`
 	Items          []availItem     `json:"items"`
 	RequestOptions []requestOption `json:"request_options"`
 	BoundWith      []boundWithRec  `json:"bound_with"`
@@ -140,37 +141,244 @@ type availabilityResponse struct {
 func (svc *serviceContext) getAvailability(c *gin.Context) {
 	catKey := c.Param("cat_key")
 
+	availResp := availabilityResponse{
+		TitleID: catKey,
+	}
+
 	matched, _ := regexp.MatchString(`^u\d*$`, catKey)
 	if !matched {
 		log.Printf("INFO: key %s not in sirsi", catKey)
-		c.String(http.StatusNotFound, fmt.Sprintf("%s not found", catKey))
+	} else {
+
+		log.Printf("INFO: get availability for %s", catKey)
+		bibResp, sirsiErr := svc.getSirsiItem(catKey)
+		if sirsiErr != nil {
+			log.Printf("ERROR: get sirsi item %s failed: %s", catKey, sirsiErr.string())
+			c.String(sirsiErr.StatusCode, sirsiErr.Message)
+			return
+		}
+
+		availResp.TitleID = bibResp.Key
+		availResp.Items = svc.processAvailabilityItems(bibResp)
+		availResp.BoundWith = svc.processBoundWithItems(bibResp)
+		availResp.RequestOptions = svc.generateRequestOptions(c.GetString("jwt"), availResp.TitleID, availResp.Items, bibResp.Fields.MarcRecord)
+	}
+
+	solrDoc, solrErr := svc.getSolrDoc(catKey)
+	if solrErr != nil {
+		log.Printf("ERROR: %s", solrErr.Error())
+	} else {
+		svc.appendAeonRequestOptions(solrDoc, &availResp)
+		claims, err := getVirgoClaims(c)
+		if err != nil {
+			log.Printf("ERROR: unable to get claims: %s", err.Error())
+		} else {
+			if claims.HomeLibrary == "HEALTHSCI" {
+				svc.updateHSLScanOptions(solrDoc, &availResp)
+			}
+			if claims.CanPlaceReserve {
+				svc.addStreamingVideoReserve(solrDoc, &availResp)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, availResp)
+}
+
+func (svc *serviceContext) appendAeonRequestOptions(solrDoc *solrDocument, result *availabilityResponse) {
+	log.Printf("INFO: append aeon request options")
+
+	processSCAvailabilityStored(result, solrDoc)
+	if !(listContains(solrDoc.Library, "Special Collections")) {
+		log.Printf("INFO: item %s library is special collections; nothing to do", result.TitleID)
 		return
 	}
 
-	log.Printf("INFO: get availability for %s", catKey)
-	bibResp, sirsiErr := svc.getSirsiItem(catKey)
-	if sirsiErr != nil {
-		log.Printf("ERROR: get sirsi item %s failed: %s", catKey, sirsiErr.string())
-		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+	aeonOption := requestOption{
+		Type:           "aeon",
+		SignInRequired: false,
+		CreateURL:      createAeonURL(solrDoc),
+		ItemOptions:    createAeonItemOptions(result, solrDoc),
+	}
+	result.RequestOptions = append(result.RequestOptions, aeonOption)
+}
+
+func processSCAvailabilityStored(avail *availabilityResponse, doc *solrDocument) {
+	// If this item has Stored SC data (ArchiveSpace)
+	if doc.SCAvailability == "" {
 		return
 	}
 
-	availResp := availabilityResponse{
-		TitleID: bibResp.Key,
-		Columns: []string{"Library", "Current Location", "Call Number", "Barcode"},
+	// Complete required availability fields
+	avail.TitleID = doc.ID
+
+	var scItems []availItem
+	if err := json.Unmarshal([]byte(doc.SCAvailability), &scItems); err != nil {
+		log.Printf("ERROR: unable to  parse sc_availability_large_single: %s", err.Error())
 	}
 
-	availResp.Items = svc.processAvailabilityItems(bibResp)
-	availResp.BoundWith = svc.processBoundWithItems(bibResp)
-	availResp.RequestOptions = svc.generateRequestOptions(c.GetString("jwt"), availResp.TitleID, availResp.Items, bibResp.Fields.MarcRecord)
+	// CREATE new items with SCNotes set. Note that this is the only place that
+	// SCNotes will be populated
+	for _, item := range scItems {
+		avail.Items = append(avail.Items, item)
+	}
+	return
+}
 
-	out := struct {
-		Availability availabilityResponse `json:"availability"`
-	}{
-		Availability: availResp,
+func createAeonURL(doc *solrDocument) string {
+	type aeonRequest struct {
+		Action      int    `url:"Action"`
+		Form        int    `url:"Form"`
+		Value       string `url:"Value"` // either GenericRequestManuscript or GenericRequestMonograph
+		DocID       string `url:"ReferenceNumber"`
+		Title       string `url:"ItemTitle" default:"(NONE)"`
+		Author      string `url:"ItemAuthor"`
+		Date        string `url:"ItemDate"`
+		ISxN        string `url:"ItemISxN"`
+		CallNumber  string `url:"CallNumber" default:"(NONE)"`
+		Barcode     string `url:"ItemNumber"`
+		Place       string `url:"ItemPlace"`
+		Publisher   string `url:"ItemPublisher"`
+		Edition     string `url:"ItemEdition"`
+		Issue       string `url:"ItemIssuesue"`
+		Volume      string `url:"ItemVolume"` // unless manuscript
+		Copy        string `url:"ItemInfo2"`
+		Location    string `url:"Location"`
+		Description string `url:"ItemInfo1"`
+		Notes       string `url:"Notes"`
+		Tags        string `url:"ResearcherTags,omitempty"`
+		UserNote    string `url:"SpecialRequest"`
 	}
 
-	c.JSON(http.StatusOK, out)
+	// Decide monograph or manuscript
+	formValue := "GenericRequestMonograph"
+
+	if listContains(doc.WorkTypes, "manuscript") ||
+		listContains(doc.Medium, "manuscript") ||
+		listContains(doc.Format, "manuscript") ||
+		listContains(doc.WorkTypes, "collection") {
+		formValue = "GenericRequestManuscript"
+	}
+
+	req := aeonRequest{
+		Action:      10,
+		Form:        20,
+		Value:       formValue,
+		DocID:       doc.ID,
+		Title:       strings.Join(doc.Title, "; "),
+		Date:        doc.PublicationDate,
+		ISxN:        strings.Join(append(doc.ISBN, doc.ISSN...), ";"),
+		Place:       strings.Join(doc.PublishedLocation, "; "),
+		Publisher:   strings.Join(doc.PublisherName, "; "),
+		Edition:     doc.Edition,
+		Issue:       doc.Issue,
+		Volume:      doc.Volume,
+		Copy:        doc.Copy,
+		Description: strings.Join(doc.Description, "; "),
+	}
+	if len(doc.Author) == 1 {
+		req.Author = doc.Author[0]
+	} else if len(doc.Author) > 1 {
+		req.Author = fmt.Sprintf("%s; ...", doc.Author[0])
+	}
+
+	// Notes, Bacode, CallNumber, UserNotes need to be added by client for the specific item!
+
+	query, _ := query.Values(req)
+
+	url := fmt.Sprintf("https://virginia.aeon.atlas-sys.com/logon?%s", query.Encode())
+	return url
+}
+
+func createAeonItemOptions(result *availabilityResponse, doc *solrDocument) []holdableItem {
+	options := []holdableItem{}
+	for _, item := range result.Items {
+		if item.LibraryID == "SPEC-COLL" || doc.SCAvailability != "" {
+			notes := ""
+			if len(item.SCNotes) > 0 {
+				notes = item.SCNotes
+			} else if len(doc.LocalNotes) > 0 {
+				// drop name
+				prefix1 := regexp.MustCompile(`^\s*SPECIAL\s+COLLECTIONS:\s+`)
+				//shorten SC name
+				prefix2 := regexp.MustCompile(`^\s*Harrison Small Special Collections,`)
+
+				for _, note := range doc.LocalNotes {
+					note = prefix1.ReplaceAllString(note, "")
+					note = prefix2.ReplaceAllString(note, "H. Small,")
+					notes += (strings.TrimSpace(note) + ";\n")
+				}
+				// truncate
+				if len(notes) > 700 {
+					notes = notes[:700]
+				}
+			} else {
+				notes = "(no location notes)"
+			}
+
+			log.Printf("    NOTES: [%s]", notes)
+			scItem := holdableItem{
+				Barcode:  item.Barcode,
+				Label:    item.CallNumber,
+				Location: item.HomeLocationID,
+				Library:  item.Library,
+				SCNotes:  notes,
+				Notice:   item.Notice,
+			}
+			options = append(options, scItem)
+		}
+	}
+
+	return options
+}
+
+func (svc *serviceContext) updateHSLScanOptions(solrDoc *solrDocument, avail *availabilityResponse) {
+	log.Printf("INFO: update scan options for hsl user")
+
+	avail.RequestOptions = slices.DeleteFunc(avail.RequestOptions, func(opt requestOption) bool {
+		return opt.Type == "scan"
+	})
+
+	hsScan := requestOption{
+		Type:           "directLink",
+		SignInRequired: false,
+		CreateURL:      openURLQuery(svc.HSILLiadURL, solrDoc),
+		ItemOptions:    make([]holdableItem, 0),
+	}
+	avail.RequestOptions = append(avail.RequestOptions, hsScan)
+}
+
+func openURLQuery(baseURL string, doc *solrDocument) string {
+	var req struct {
+		Action  string `url:"Action"`
+		Form    string `url:"Form"`
+		ISSN    string `url:"issn,omitempty"`
+		Title   string `url:"loantitle"`
+		Author  string `url:"loanauthor,omitempty"`
+		Edition string `url:"loanedition,omitempty"`
+		Volume  string `url:"photojournalvolume,omitempty"`
+		Issue   string `url:"photojournalissue,omitempty"`
+		Date    string `url:"loandate,omitempty"`
+	}
+	req.Action = "10"
+	req.Form = "21"
+	req.ISSN = strings.Join(doc.ISSN, ", ")
+	req.Title = strings.Join(doc.Title, "; ")
+	req.Author = strings.Join(doc.Author, "; ")
+	req.Edition = doc.Edition
+	req.Volume = doc.Volume
+	req.Issue = doc.Issue
+	req.Date = doc.PublicationDate
+	query, err := query.Values(req)
+	if err != nil {
+		log.Printf("ERROR: couldn't generate OpenURL: %s", err.Error())
+	}
+
+	return fmt.Sprintf("%s/illiad.dll?%s", baseURL, query.Encode())
+}
+
+func (svc *serviceContext) addStreamingVideoReserve(solrDoc *solrDocument, avail *availabilityResponse) {
+
 }
 
 func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requestError) {
@@ -237,7 +445,6 @@ func (svc *serviceContext) processAvailabilityItems(bibResp *sirsiBibResponse) [
 			item.IsVideo = isVideo(itemRec.Fields.ItemType.Key)
 			item.OnShelf = svc.isOnShelf(item)
 			item.Unavailable = svc.Locations.isUnavailable(item.CurrentLocationID)
-			item.NonCirculating = svc.isNonCirculating(item)
 
 			var fields []availItemField
 			fields = append(fields, availItemField{Name: "Library", Value: item.Library, Visibile: true, Type: "text"})

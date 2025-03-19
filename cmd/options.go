@@ -16,15 +16,15 @@ type holdableItem struct {
 	IsVideo    bool   `json:"is_video"`
 	Notice     string `json:"notice"`
 	Volume     string `json:"-"`
+	SCNotes    string `json:"sc_notes,omitempty"` // only set based on solr doc for aeon items
 }
 
 type requestOption struct {
-	Type           string         `json:"type"`
-	SignInRequired bool           `json:"sign_in_required"`
-	ButtonLabel    string         `json:"button_label"`
-	Description    string         `json:"description"`
-	ItemOptions    []holdableItem `json:"item_options"`
-	CreateURL      string         `json:"create_url"`
+	Type             string         `json:"type"`
+	SignInRequired   bool           `json:"sign_in_required"`
+	StreamingReserve bool           `json:"streaming_reserve"`
+	ItemOptions      []holdableItem `json:"item_options"`
+	CreateURL        string         `json:"create_url"`
 }
 
 func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string, items []availItem, marc sirsiBibData) []requestOption {
@@ -40,7 +40,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 
 		// unavailable or non circulating items are not holdable. This assumes (per original code)
 		// that al users can request onshelf items
-		if item.Unavailable || item.NonCirculating {
+		if item.Unavailable || svc.isNonCirculating(item) {
 			continue
 		}
 
@@ -56,8 +56,6 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 	if len(holdableItems) > 0 {
 		log.Printf("INFO: add hold options for %s", titleID)
 		out = append(out, requestOption{Type: "hold", SignInRequired: true,
-			ButtonLabel: "Request item",
-			Description: "Request an unavailable item or request delivery.",
 			ItemOptions: holdableItems,
 		})
 
@@ -73,8 +71,6 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		if len(nonVideo) > 0 {
 			log.Printf("INFO: add scan options for %s", titleID)
 			out = append(out, requestOption{Type: "scan", SignInRequired: true,
-				ButtonLabel: "Request a scan",
-				Description: "Select a portion of this item to be scanned.",
 				ItemOptions: nonVideo,
 			})
 		}
@@ -82,8 +78,6 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		if len(videos) > 0 {
 			log.Printf("INFO: add video reserve options for %s", titleID)
 			out = append(out, requestOption{Type: "videoReserve", SignInRequired: true,
-				ButtonLabel: "Video reserve request",
-				Description: "Request a video reserve for streaming.",
 				ItemOptions: videos,
 			})
 		}
@@ -99,8 +93,6 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		if err != nil {
 			if err.StatusCode == 404 {
 				out = append(out, requestOption{Type: "pda", SignInRequired: true,
-					ButtonLabel: "Order this Item",
-					Description: `<div class="pda-about">Learn more about <a href="https://library.virginia.edu/about-available-to-order-items" aria-label="Available to Order" style="text-decoration: underline;" target="_blank" title="Available to Order (Opens in a new window.)" class="piwik_link">Available to Order</a> items.</div>`,
 					ItemOptions: make([]holdableItem, 0),
 					CreateURL:   svc.generatePDACreateURL(titleID, atoItem.Barcode, marc),
 				})
@@ -110,7 +102,6 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		} else {
 			// success here means the item has been orderd, but sirsi not yet updated
 			out = append(out, requestOption{Type: "pda", SignInRequired: true,
-				Description: `<div class="pda-about">This item is now on order. Learn more about <a href="https://library.virginia.edu/about-available-to-order-items" aria-label="Available to Order" style="text-decoration: underline;" target="_blank" title="Available to Order (Opens in a new window.)" class="piwik_link">Available to Order</a> items.</div>`,
 				ItemOptions: make([]holdableItem, 0),
 			})
 		}
