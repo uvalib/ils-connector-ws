@@ -117,7 +117,7 @@ func (ai *availItem) toHoldableItem() holdableItem {
 		cn = strings.Split(ai.CallNumber, " (copy")[0]
 	}
 	return holdableItem{Barcode: ai.Barcode,
-		Label: cn, Library: ai.Library,
+		Label: cn, Library: ai.LibraryID,
 		Location: ai.CurrentLocation, LocationID: ai.CurrentLocationID,
 		IsVideo: ai.IsVideo, Notice: ai.Notice, Volume: ai.Volume}
 }
