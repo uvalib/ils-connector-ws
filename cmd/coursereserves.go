@@ -398,18 +398,7 @@ func (svc *serviceContext) getCourseReserveItemAvailability(catKey string) ([]av
 
 	out := make([]availabilityInfo, 0)
 	for _, availItem := range availItems {
-		avail := availabilityInfo{}
-		for _, field := range availItem.Fields {
-			if field.Name == "Library" {
-				avail.Library = field.Value
-			} else if field.Name == "Availability" {
-				avail.Availability = field.Value
-			} else if field.Name == "Current Location" {
-				avail.Location = field.Value
-			} else if field.Name == "Call Number" {
-				avail.CallNumber = field.Value
-			}
-		}
+		avail := availabilityInfo{Library: availItem.Library, Location: availItem.CurrentLocation, CallNumber: availItem.CallNumber}
 		out = append(out, avail)
 	}
 	return out, nil

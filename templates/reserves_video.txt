@@ -29,7 +29,6 @@ _______________________________________________________________________
 {{- range $aIdx, $avail := $item.Availability }}
 Library: {{ $avail.Library }}
 Location: {{ $avail.Location }}
-Availability: {{ $avail.Availability }}
 Call Number: {{ $avail.CallNumber }}
 {{- end }}
 

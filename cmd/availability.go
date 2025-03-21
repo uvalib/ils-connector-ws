@@ -95,20 +95,19 @@ type availItemField struct {
 }
 
 type availItem struct {
-	Barcode           string           `json:"barcode"`
-	OnShelf           bool             `json:"on_shelf"`
-	Unavailable       bool             `json:"unavailable"`
-	Notice            string           `json:"notice"`
-	Library           string           `json:"library"`
-	LibraryID         string           `json:"library_id"`
-	CurrentLocation   string           `json:"current_location"`
-	CurrentLocationID string           `json:"current_location_id"`
-	HomeLocationID    string           `json:"home_location_id"`
-	CallNumber        string           `json:"call_number"` // NOTE: copy number as appened here as (copy n)
-	IsVideo           bool             `json:"is_video"`
-	Volume            string           `json:"volume"`
-	SCNotes           string           `json:"special_collections_location"` // added from solr doc; never pulled from sirsi
-	Fields            []availItemField `json:"-"`                            // used internally for course reserves TODO WHY?
+	Barcode           string `json:"barcode"`
+	OnShelf           bool   `json:"on_shelf"`
+	Unavailable       bool   `json:"unavailable"`
+	Notice            string `json:"notice"`
+	Library           string `json:"library"`
+	LibraryID         string `json:"library_id"`
+	CurrentLocation   string `json:"current_location"`
+	CurrentLocationID string `json:"current_location_id"`
+	HomeLocationID    string `json:"home_location_id"`
+	CallNumber        string `json:"call_number"` // NOTE: copy number as appened here as (copy n)
+	IsVideo           bool   `json:"is_video"`
+	Volume            string `json:"volume"`
+	SCNotes           string `json:"special_collections_location"` // added from solr doc; never pulled from sirsi
 }
 
 func (ai *availItem) toHoldableItem() holdableItem {
@@ -222,6 +221,8 @@ func processSCAvailabilityStored(avail *availabilityResponse, doc *solrDocument)
 	for _, item := range scItems {
 		avail.Items = append(avail.Items, item)
 	}
+
+	log.Printf("PARSED ITEMS: %+v", scItems)
 	return
 }
 
@@ -445,14 +446,6 @@ func (svc *serviceContext) processAvailabilityItems(bibResp *sirsiBibResponse) [
 			item.IsVideo = isVideo(itemRec.Fields.ItemType.Key)
 			item.OnShelf = svc.isOnShelf(item)
 			item.Unavailable = svc.Locations.isUnavailable(item.CurrentLocationID)
-
-			var fields []availItemField
-			fields = append(fields, availItemField{Name: "Library", Value: item.Library, Visibile: true, Type: "text"})
-			fields = append(fields, availItemField{Name: "Current Location", Value: item.CurrentLocation, Visibile: true, Type: "text"})
-			fields = append(fields, availItemField{Name: "Call Number", Value: item.CallNumber, Visibile: true, Type: "text"})
-			fields = append(fields, availItemField{Name: "Barcode", Value: item.Barcode, Visibile: true, Type: "text"})
-			item.Fields = fields
-
 			out = append(out, item)
 		}
 	}
