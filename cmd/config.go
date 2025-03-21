@@ -91,7 +91,7 @@ func loadConfiguration() *serviceConfig {
 		log.Fatal("jwtkey param is required")
 	}
 	if cfg.Secrets.UserJWTKey == "" {
-		log.Fatal("authsecret param is required")
+		log.Fatal("userkey param is required")
 	}
 	if cfg.Sirsi.WebServicesURL == "" {
 		log.Fatal("sirsiurl param is required")

@@ -217,7 +217,8 @@ func processSCAvailabilityStored(avail *availabilityResponse, doc *solrDocument)
 	}
 
 	// CREATE new items with SCNotes set. Note that this is the only place that
-	// SCNotes will be populated
+	// SCNotes will be populated.
+	// Some of these items hav current_location set to SC-Ivy; for these, put that data in location
 	for _, item := range scItems {
 		avail.Items = append(avail.Items, item)
 	}
@@ -318,10 +319,14 @@ func createAeonItemOptions(result *availabilityResponse, doc *solrDocument) []ho
 			}
 
 			log.Printf("    NOTES: [%s]", notes)
+			loc := item.HomeLocationID
+			if item.CurrentLocation == "SC-Ivy" {
+				loc = "SC-Ivy"
+			}
 			scItem := holdableItem{
 				Barcode:  item.Barcode,
 				Label:    item.CallNumber,
-				Location: item.HomeLocationID,
+				Location: loc,
 				Library:  item.Library,
 				SCNotes:  notes,
 				Notice:   item.Notice,
@@ -379,7 +384,7 @@ func openURLQuery(baseURL string, doc *solrDocument) string {
 }
 
 func (svc *serviceContext) addStreamingVideoReserve(solrDoc *solrDocument, avail *availabilityResponse) {
-
+	// TODO
 }
 
 func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requestError) {
