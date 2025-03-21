@@ -203,13 +203,10 @@ func (svc *serviceContext) appendAeonRequestOptions(solrDoc *solrDocument, resul
 }
 
 func processSCAvailabilityStored(avail *availabilityResponse, doc *solrDocument) {
-	log.Printf("TEST: DOC SCAvailability [%s]", doc.SCAvailability)
 	// If this item has Stored SC data (ArchiveSpace)
 	if doc.SCAvailability == "" {
 		return
 	}
-
-	log.Printf("============== HAS SCAVAIL ===========================")
 
 	// Complete required availability fields
 	avail.TitleID = doc.ID
@@ -331,7 +328,6 @@ func createAeonItemOptions(result *availabilityResponse, doc *solrDocument) []ho
 				SCNotes:  notes,
 				Notice:   item.Notice,
 			}
-			log.Printf("ADD SC OPT: %+v", scItem)
 			options = append(options, scItem)
 		}
 	}
