@@ -203,10 +203,13 @@ func (svc *serviceContext) appendAeonRequestOptions(solrDoc *solrDocument, resul
 }
 
 func processSCAvailabilityStored(avail *availabilityResponse, doc *solrDocument) {
+	log.Printf("TEST: DOC SCAvailability [%s]", doc.SCAvailability)
 	// If this item has Stored SC data (ArchiveSpace)
 	if doc.SCAvailability == "" {
 		return
 	}
+
+	log.Printf("============== HAS SCAVAIL ===========================")
 
 	// Complete required availability fields
 	avail.TitleID = doc.ID
@@ -216,14 +219,12 @@ func processSCAvailabilityStored(avail *availabilityResponse, doc *solrDocument)
 		log.Printf("ERROR: unable to  parse sc_availability_large_single: %s", err.Error())
 	}
 
-	// CREATE new items with SCNotes set. Note that this is the only place that
+	// CREATE new items with SCNotes set from data in SCAvailability. Note that this is the only place that
 	// SCNotes will be populated.
 	// Some of these items hav current_location set to SC-Ivy; for these, put that data in location
 	for _, item := range scItems {
 		avail.Items = append(avail.Items, item)
 	}
-
-	log.Printf("PARSED ITEMS: %+v", scItems)
 	return
 }
 
@@ -318,7 +319,6 @@ func createAeonItemOptions(result *availabilityResponse, doc *solrDocument) []ho
 				notes = "(no location notes)"
 			}
 
-			log.Printf("    NOTES: [%s]", notes)
 			loc := item.HomeLocationID
 			if item.CurrentLocation == "SC-Ivy" {
 				loc = "SC-Ivy"
@@ -331,6 +331,7 @@ func createAeonItemOptions(result *availabilityResponse, doc *solrDocument) []ho
 				SCNotes:  notes,
 				Notice:   item.Notice,
 			}
+			log.Printf("ADD SC OPT: %+v", scItem)
 			options = append(options, scItem)
 		}
 	}
@@ -384,7 +385,18 @@ func openURLQuery(baseURL string, doc *solrDocument) string {
 }
 
 func (svc *serviceContext) addStreamingVideoReserve(solrDoc *solrDocument, avail *availabilityResponse) {
-	// TODO
+	if solrDoc.Pool[0] == "video" && (listContains(solrDoc.Location, "Internet materials") ||
+		listContains(solrDoc.Source, "Avalon")) {
+
+		log.Printf("Adding streaming video reserve option")
+		option := requestOption{
+			Type:             "videoReserve",
+			SignInRequired:   true,
+			StreamingReserve: true,
+			ItemOptions:      make([]holdableItem, 0),
+		}
+		avail.RequestOptions = append(avail.RequestOptions, option)
+	}
 }
 
 func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requestError) {
