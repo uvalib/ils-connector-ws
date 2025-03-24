@@ -84,6 +84,15 @@ func (lc *libraryContext) find(key string) *libraryRec {
 	return match
 }
 
+func (lc *libraryContext) lookupID(name string) string {
+	for _, lib := range lc.Records {
+		if strings.TrimSpace(lib.Description) == strings.TrimSpace(name) {
+			return lib.Key
+		}
+	}
+	return ""
+}
+
 func (lc *libraryContext) lookupPDALibrary(pdaLib string) string {
 	pdaMap := map[string]string{
 		"SH-PPDA": "SHANNON",
