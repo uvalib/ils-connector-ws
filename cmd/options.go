@@ -47,7 +47,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 			continue
 		}
 
-		holdableItem := item.toHoldableItem()
+		holdableItem := item.toHoldableItem("")
 		if svc.Locations.isMediumRare(item.HomeLocationID) {
 			holdableItem.CallNumber += " (Ivy limited circulation)"
 		}
@@ -190,22 +190,7 @@ func createAeonItemOptions(solrDoc *solrDocument, availItems []availItem) []hold
 			notes = notes[:700]
 		}
 
-		loc := item.HomeLocationID
-		if item.CurrentLocation == "SC-Ivy" {
-			// There is special handling in in the workflow for equests from SC-Ivy.
-			// Override location with this info if it is present to ensure it appears in the
-			// aeon request URL
-			loc = "SC-Ivy"
-		}
-		scItem := holdableItem{
-			Barcode:    item.Barcode,
-			CallNumber: item.CallNumber,
-			Location:   loc,
-			Library:    item.Library,
-			SCNotes:    notes,
-			Notice:     item.Notice,
-		}
-		options = append(options, scItem)
+		options = append(options, item.toHoldableItem(notes))
 	}
 
 	return options
@@ -247,9 +232,7 @@ func createAeonURL(doc *solrDocument) string {
 	}
 
 	desc := strings.Join(doc.Description, "; ")
-	log.Printf("DESC: %s", desc)
 	if len(desc) > 100 {
-		log.Printf("DESC LEN: %d", len(desc))
 		desc = desc[:100]
 	}
 
@@ -286,13 +269,13 @@ func createAeonURL(doc *solrDocument) string {
 func holdableExists(tgtItem holdableItem, holdableItems []holdableItem) bool {
 	exist := false
 	for _, hi := range holdableItems {
-		if strings.ToUpper(hi.CallNumber) == strings.ToUpper(tgtItem.CallNumber) || hi.Barcode == tgtItem.Barcode {
+		if strings.ToUpper(hi.CallNumber) == strings.ToUpper(tgtItem.CallNumber) {
 			exist = true
 			break
 		}
 	}
 	if exist == false {
-		// NOTES: even if call / barcode is unique, the item may be considered the same if it does not
+		// NOTES: even if call is unique, the item may be considered the same if it does not
 		// have any volume info. Ex: u5841451 is a video with 2 unique callnumns:
 		// VIDEO .DVD19571 and KLAUS DVD #1224. Since neiter is a different volume they are considered
 		// the same item from a request persective. Only add the first instance of such items.

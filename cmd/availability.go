@@ -102,23 +102,44 @@ type availItem struct {
 	CurrentLocation   string
 	CurrentLocationID string
 	HomeLocationID    string
-	CallNumber        string // NOTE: copy number as appened here as (copy n)
+	CallNumber        string
+	CopyNumber        int
 	IsVideo           bool
 	Volume            string
 	SCLocation        string
 }
 
-func (ai *availItem) toHoldableItem() holdableItem {
+func (ai *availItem) toLibraryItem() libraryItem {
 	cn := ai.CallNumber
-	if ai.LibraryID != "SPEC-COLL" {
-		// for sources other than special collections, copies of a particular item
-		// are considered to be the same item. drop the copy info.
-		cn = strings.Split(ai.CallNumber, " (copy")[0]
+	if ai.CopyNumber > 0 {
+		cn += fmt.Sprintf(" (copy %d)", ai.CopyNumber)
+	}
+	return libraryItem{Barcode: ai.Barcode,
+		CallNumber:      cn,
+		CurrentLocation: ai.CurrentLocation,
+		DiBS:            (ai.HomeLocationID == "DIBS"),
+		Notice:          ai.Notice}
+}
+
+func (ai *availItem) toHoldableItem(notes string) holdableItem {
+	cn := ai.CallNumber
+	if ai.LibraryID == "SPEC-COLL" && ai.CopyNumber > 0 {
+		// copies are unique items in SC, append the copy info to callNum to make each unique
+		cn += fmt.Sprintf(" (copy %d)", ai.CopyNumber)
+	}
+	loc := ai.HomeLocationID
+	if ai.CurrentLocation == "SC-Ivy" {
+		// There is special handling in in the workflow for equests from SC-Ivy.
+		// Override location with this info if it is present to ensure it appears in the
+		// aeon request URL
+		loc = "SC-Ivy"
 	}
 	return holdableItem{Barcode: ai.Barcode,
-		CallNumber: cn, Library: ai.LibraryID,
-		Location: ai.CurrentLocation, IsVideo: ai.IsVideo,
-		Notice: ai.Notice, Volume: ai.Volume}
+		CallNumber: cn,
+		Location:   loc,
+		Library:    ai.Library,
+		SCNotes:    notes,
+		Notice:     ai.Notice}
 }
 
 type boundWithRec struct {
@@ -233,12 +254,9 @@ func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []avai
 
 			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
 			for _, test := range callRec.Fields.ItemList {
+				// if any item has copy num > 1, there are multiple copies; store the number.
 				if test.Fields.CopyNumber > 1 {
-					// append the copy num to the call number for display in the availability
-					// section of virgo. NOTE: for actually making a request for a non-special-collections item, the copy number
-					// is ignored since end users cant pick a specific copy; all are considered the same. For special collections
-					// each copy is a unique item that can be requested directly
-					item.CallNumber += fmt.Sprintf(" (copy %d)", itemRec.Fields.CopyNumber)
+					item.CopyNumber = itemRec.Fields.CopyNumber
 					break
 				}
 			}
@@ -311,13 +329,7 @@ func (svc *serviceContext) addLibraryItems(result *availabilityResponse, items [
 			tgtLib = &newLib
 			result.Libraries = append(result.Libraries, tgtLib)
 		}
-		newItem := libraryItem{
-			Barcode:         item.Barcode,
-			CallNumber:      item.CallNumber,
-			CurrentLocation: item.CurrentLocation,
-			DiBS:            (item.HomeLocationID == "DIBS"),
-			Notice:          item.Notice}
-		tgtLib.Items = append(tgtLib.Items, newItem)
+		tgtLib.Items = append(tgtLib.Items, item.toLibraryItem())
 	}
 }
 
