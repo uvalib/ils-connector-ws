@@ -394,7 +394,7 @@ func (svc *serviceContext) getCourseReserveItemAvailability(catKey string) ([]av
 	if sirsiErr != nil {
 		return nil, fmt.Errorf("get sirsi item availability failed %s", sirsiErr.string())
 	}
-	availItems := svc.processAvailabilityItems(bibResp)
+	availItems := svc.parseItemsFromSirsi(bibResp)
 
 	out := make([]availabilityInfo, 0)
 	for _, availItem := range availItems {

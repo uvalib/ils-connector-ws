@@ -311,7 +311,7 @@ func (svc *serviceContext) sendRequest(serviceName string, httpClient *http.Clie
 	elapsedNanoSec := time.Since(startTime)
 	elapsedMS := int64(elapsedNanoSec / time.Millisecond)
 	log.Printf("INFO: %s %s request processed in %d (ms)", serviceName, request.Method, elapsedMS)
-	// log.Printf("INFO: %s %s response: %s", serviceName, request.Method, respBytes)
+	log.Printf("INFO: %s %s response: %s", serviceName, request.Method, respBytes)
 
 	return respBytes, reqErr
 }
