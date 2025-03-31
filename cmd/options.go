@@ -18,7 +18,6 @@ type holdableItem struct {
 	Location   string `json:"location"`
 	IsVideo    bool   `json:"is_video"`
 	Notice     string `json:"notice"`
-	Volume     string `json:"-"`                  // not sent to client, but used internally to determine duplictes
 	SCNotes    string `json:"sc_notes,omitempty"` // only set based on solr doc for aeon items
 }
 
@@ -51,7 +50,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		if svc.Locations.isMediumRare(item.HomeLocationID) {
 			holdableItem.CallNumber += " (Ivy limited circulation)"
 		}
-		if holdableExists(holdableItem, holdableItems) == false {
+		if holdableExists(holdableItem, item.Volume, holdableItems) == false {
 			holdableItems = append(holdableItems, holdableItem)
 		}
 	}
@@ -266,7 +265,7 @@ func createAeonURL(doc *solrDocument) string {
 	return url
 }
 
-func holdableExists(tgtItem holdableItem, holdableItems []holdableItem) bool {
+func holdableExists(tgtItem holdableItem, volume string, holdableItems []holdableItem) bool {
 	exist := false
 	for _, hi := range holdableItems {
 		if strings.ToUpper(hi.CallNumber) == strings.ToUpper(tgtItem.CallNumber) {
@@ -279,7 +278,7 @@ func holdableExists(tgtItem holdableItem, holdableItems []holdableItem) bool {
 		// have any volume info. Ex: u5841451 is a video with 2 unique callnumns:
 		// VIDEO .DVD19571 and KLAUS DVD #1224. Since neiter is a different volume they are considered
 		// the same item from a request persective. Only add the first instance of such items.
-		return tgtItem.Volume == "" && len(holdableItems) > 0
+		return volume == "" && len(holdableItems) > 0
 	}
 	return exist
 }

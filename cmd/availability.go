@@ -94,16 +94,15 @@ type availabilityListResponse struct {
 // Necessary fields are pulled from here into client responses for library availability and request options
 type availItem struct {
 	Barcode           string
-	OnShelf           bool
-	Unavailable       bool
-	Notice            string
+	CallNumber        string
+	CopyNumber        int
 	Library           string
 	LibraryID         string
 	CurrentLocation   string
 	CurrentLocationID string
 	HomeLocationID    string
-	CallNumber        string
-	CopyNumber        int
+	Unavailable       bool
+	Notice            string
 	IsVideo           bool
 	Volume            string
 	SCLocation        string
@@ -138,6 +137,7 @@ func (ai *availItem) toHoldableItem(notes string) holdableItem {
 		CallNumber: cn,
 		Location:   loc,
 		Library:    ai.Library,
+		IsVideo:    ai.IsVideo,
 		SCNotes:    notes,
 		Notice:     ai.Notice}
 }
@@ -270,7 +270,6 @@ func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []avai
 			item.HomeLocationID = itemRec.Fields.HomeLocation.Key
 			item.Notice = svc.getItemNotice(item)
 			item.IsVideo = isVideo(itemRec.Fields.ItemType.Key)
-			item.OnShelf = svc.isOnShelf(item)
 			item.Unavailable = svc.Locations.isUnavailable(item.CurrentLocationID)
 			out = append(out, item)
 		}
@@ -503,12 +502,6 @@ func (svc *serviceContext) isNonCirculating(item availItem) bool {
 	lib := svc.Libraries.find(item.LibraryID)
 	loc := svc.Locations.find(item.CurrentLocationID)
 	return lib != nil && loc != nil && lib.Circulating == false || loc.Circulating == false
-}
-
-func (svc *serviceContext) isOnShelf(item availItem) bool {
-	lib := svc.Libraries.find(item.LibraryID)
-	loc := svc.Locations.find(item.CurrentLocationID)
-	return lib != nil && loc != nil && lib.OnShelf && loc.OnShelf
 }
 
 func (svc *serviceContext) getAvailabilityList(c *gin.Context) {
