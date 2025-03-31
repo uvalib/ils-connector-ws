@@ -113,7 +113,8 @@ func (ai *availItem) toLibraryItem() libraryItem {
 	if ai.CopyNumber > 0 {
 		cn += fmt.Sprintf(" (copy %d)", ai.CopyNumber)
 	}
-	return libraryItem{Barcode: ai.Barcode,
+	return libraryItem{
+		Barcode:         ai.Barcode,
 		CallNumber:      cn,
 		CurrentLocation: ai.CurrentLocation,
 		DiBS:            (ai.HomeLocationID == "DIBS"),
@@ -133,11 +134,11 @@ func (ai *availItem) toHoldableItem(notes string) holdableItem {
 		// aeon request URL
 		loc = "SC-Ivy"
 	}
-	return holdableItem{Barcode: ai.Barcode,
+	return holdableItem{
+		Barcode:    ai.Barcode,
 		CallNumber: cn,
 		Location:   loc,
 		Library:    ai.Library,
-		IsVideo:    ai.IsVideo,
 		SCNotes:    notes,
 		Notice:     ai.Notice}
 }

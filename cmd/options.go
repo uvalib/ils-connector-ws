@@ -16,7 +16,6 @@ type holdableItem struct {
 	CallNumber string `json:"call_number"`
 	Library    string `json:"library"`
 	Location   string `json:"location"`
-	IsVideo    bool   `json:"is_video"`
 	Notice     string `json:"notice"`
 	SCNotes    string `json:"sc_notes,omitempty"` // only set based on solr doc for aeon items
 }
@@ -32,6 +31,8 @@ type requestOption struct {
 func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string, items []availItem, marc sirsiBibData) []requestOption {
 	out := make([]requestOption, 0)
 	holdableItems := make([]holdableItem, 0)
+	videoItemOpts := make([]holdableItem, 0)
+	scanItemOpts := make([]holdableItem, 0)
 	var atoItem *availItem
 
 	for _, item := range items {
@@ -52,6 +53,12 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		}
 		if holdableExists(holdableItem, item.Volume, holdableItems) == false {
 			holdableItems = append(holdableItems, holdableItem)
+
+			if item.IsVideo {
+				videoItemOpts = append(videoItemOpts, holdableItem)
+			} else {
+				scanItemOpts = append(scanItemOpts, holdableItem)
+			}
 		}
 	}
 
@@ -60,29 +67,20 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		out = append(out, requestOption{Type: "hold", SignInRequired: true,
 			ItemOptions: holdableItems,
 		})
+	}
 
-		nonVideo := make([]holdableItem, 0)
-		videos := make([]holdableItem, 0)
-		for _, item := range holdableItems {
-			if item.IsVideo == false {
-				nonVideo = append(nonVideo, item)
-			} else {
-				videos = append(videos, item)
-			}
-		}
-		if len(nonVideo) > 0 {
-			log.Printf("INFO: add scan options for %s", titleID)
-			out = append(out, requestOption{Type: "scan", SignInRequired: true,
-				ItemOptions: nonVideo,
-			})
-		}
+	if len(videoItemOpts) > 0 {
+		log.Printf("INFO: add video reserve options for %s", titleID)
+		out = append(out, requestOption{Type: "videoReserve", SignInRequired: true,
+			ItemOptions: videoItemOpts,
+		})
+	}
 
-		if len(videos) > 0 {
-			log.Printf("INFO: add video reserve options for %s", titleID)
-			out = append(out, requestOption{Type: "videoReserve", SignInRequired: true,
-				ItemOptions: videos,
-			})
-		}
+	if len(scanItemOpts) > 0 {
+		log.Printf("INFO: add scan options for %s", titleID)
+		out = append(out, requestOption{Type: "scan", SignInRequired: true,
+			ItemOptions: scanItemOpts,
+		})
 	}
 
 	if atoItem != nil {
