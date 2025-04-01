@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"slices"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -66,8 +68,8 @@ type sirsiHoldRec struct {
 type sirsiTransitRec struct {
 	Key    string `json:"key"`
 	Fields struct {
-		DestinationLibrary sirsiKey `json:"destinationLibrary"`
-		HoldRecord         sirsiKey `json:"holdRecord"`
+		DestinationLibrary sirsiKey  `json:"destinationLibrary"`
+		HoldRecord         *sirsiKey `json:"holdRecord"`
 	} `json:"fields"`
 }
 
@@ -275,6 +277,16 @@ func (svc *serviceContext) placeHold(holdReq holdRequest, patronBarcode, workLib
 	return nil
 }
 
+type fillHoldInfo struct {
+	Key             string
+	Barcode         string
+	UserName        string
+	UserID          string
+	UserBarcode     string
+	PickupLibraryID string
+	Untransit       bool
+}
+
 // Fill a hold by using the provided staff session token in request.headers['SirsiSessionToken']
 // - Retrieve item info with barcode
 // - Untransit Item
@@ -330,84 +342,123 @@ func (svc *serviceContext) fillHold(c *gin.Context) {
 	out.Title = item.Fields.Bib.Fields.Title
 	out.Author = item.Fields.Bib.Fields.Author
 
-	// IMPORTANT: the data returned in the transit block only contains the holdRecord KEY and no other details
-	// if a transit record is found, find the hold details in the fillableHoldList
-	// IF there is a transit record, the item must be untransited first, then the checkout can proceed
-	var tgtHold *sirsiHoldRec
-	if item.Fields.Transit != nil {
-		log.Printf("INFO: %s is in transit; find hold details", barcode)
-		holdKey := item.Fields.Transit.Fields.HoldRecord.Key
-		for _, h := range item.Fields.FillableHolds {
-			if h.Key == holdKey {
-				tgtHold = &h
-				break
-			}
-		}
-		if tgtHold == nil {
-			log.Printf("ERROR: unable to find in-transit hold %s in fillable holds list", holdKey)
-			c.String(http.StatusInternalServerError, "unable to find hold data in transit item")
-			return
-		}
-	} else if len(item.Fields.FillableHolds) > 0 {
-		tgtHold = &item.Fields.FillableHolds[0]
-	}
-
-	if tgtHold == nil {
+	if len(item.Fields.FillableHolds) == 0 && (item.Fields.Transit == nil || (item.Fields.Transit != nil && item.Fields.Transit.Fields.HoldRecord == nil)) {
 		log.Printf("INFO: no hold or transit for %s", barcode)
 		out.ErrorMessages = append(out.ErrorMessages, sirsiMessage{Message: "No hold for this item."})
 		c.JSON(http.StatusOK, out)
 		return
 	}
 
-	// populate more response data based on target hold; necessary for the next steps
-	out.UserName = tgtHold.Fields.Patron.Fields.DisplayName
-	out.UserID = tgtHold.Fields.Patron.Fields.AlternateID
-	out.PickupLibraryID = tgtHold.Fields.PickupLibrary.Key
-
-	// if the item has transit data, untransit it
+	// collect a list of item data to try for untransit/checkout. If a transit item is present, it will be used first
+	items := make([]fillHoldInfo, 0)
 	if item.Fields.Transit != nil {
-		status, err := svc.fillHoldUntransitItem(barcode, out.PickupLibraryID, sessionToken)
-		if err != nil {
-			log.Printf("ERROR: untransit request failed: %s", err.string())
-			c.String(err.StatusCode, err.Message)
+		// IMPORTANT: the data returned in the transit block only contains the holdRecord KEY and no other details
+		// if a transit record is found, find the hold details in the fillableHoldList
+		// IF there is a transit record, the item must be untransited first, then the checkout can proceed
+		var transitHold *sirsiHoldRec
+		log.Printf("INFO: %s is in transit; find hold details", barcode)
+		holdKey := item.Fields.Transit.Fields.HoldRecord.Key
+		delIdx := -1
+		for hIdx, h := range item.Fields.FillableHolds {
+			if h.Key == holdKey {
+				transitHold = &h
+				delIdx = hIdx
+				break
+			}
+		}
+		if transitHold == nil {
+			log.Printf("ERROR: unable to find in-transit hold %s in fillable holds list", holdKey)
+			c.String(http.StatusInternalServerError, "unable to find hold data in transit item")
 			return
 		}
-		if status != "ON_SHELF" {
-			log.Printf("ERROR: untransit error returned incorrect status %s", status)
-			out.ErrorMessages = append(out.ErrorMessages, sirsiMessage{Message: status})
-			c.JSON(http.StatusOK, out)
-			return
+
+		items = append(items, fillHoldInfo{
+			Key:             item.Fields.Transit.Fields.HoldRecord.Key,
+			Barcode:         barcode,
+			UserName:        transitHold.Fields.Patron.Fields.DisplayName,
+			UserID:          transitHold.Fields.Patron.Fields.AlternateID,
+			UserBarcode:     transitHold.Fields.Patron.Fields.Barcode,
+			PickupLibraryID: transitHold.Fields.PickupLibrary.Key,
+			Untransit:       true,
+		})
+
+		// now remove the hold rec for the in-transit item so it is not processed twice
+		log.Printf("INFO: remove fillable hold index %d of %d for %s that was referenced by the transit record", delIdx, len(item.Fields.FillableHolds), transitHold.Key)
+		item.Fields.FillableHolds = slices.Delete(item.Fields.FillableHolds, delIdx, delIdx+1)
+		log.Printf("INFO: after delete, %d records remain", len(item.Fields.FillableHolds))
+	}
+
+	// collect details needed to fill hold from each rec
+	for _, tgtHold := range item.Fields.FillableHolds {
+		items = append(items, fillHoldInfo{
+			Key:             tgtHold.Key,
+			Barcode:         barcode,
+			UserName:        tgtHold.Fields.Patron.Fields.DisplayName,
+			UserID:          tgtHold.Fields.Patron.Fields.AlternateID,
+			UserBarcode:     tgtHold.Fields.Patron.Fields.Barcode,
+			PickupLibraryID: tgtHold.Fields.PickupLibrary.Key,
+			Untransit:       false,
+		})
+	}
+
+	log.Printf("INFO: %s has %d holds to try", barcode, len(items))
+	errors := make([]sirsiMessage, 0)
+	success := false
+	for _, tgt := range items {
+		// populate more response data based on target hold; necessary for the next steps
+		out.UserName = tgt.UserName
+		out.UserID = tgt.UserID
+		out.PickupLibraryID = tgt.PickupLibraryID
+
+		// if necessary, first try an untransit
+		if tgt.Untransit {
+			status, err := svc.fillHoldUntransitItem(tgt, sessionToken)
+			if err != nil {
+				log.Printf("INFO: untransit request failed: %s", err.string())
+				errors = append(errors, sirsiMessage{Code: fmt.Sprintf("%d", err.StatusCode), Message: err.Message})
+				continue
+			}
+			if status != "ON_SHELF" {
+				log.Printf("INFO: untransit returned incorrect status %s", status)
+				errors = append(errors, sirsiMessage{Message: status})
+				c.JSON(http.StatusOK, out)
+				continue
+			}
+		}
+
+		coErr := svc.fillHoldCheckout(tgt, sessionToken)
+		if coErr != nil {
+			// on failure, there willl be errors listed in the error string. parse and save
+			log.Printf("INFO: fill hold checkout for %s failed: %s", barcode, coErr.string())
+			var msgs sirsiMessageList
+			json.Unmarshal([]byte(coErr.Message), &msgs)
+			errors = append(errors, msgs.MessageList...)
+		} else {
+			success = true
+			break
 		}
 	}
 
-	// now checkout the item...
-	userBarcode := tgtHold.Fields.Patron.Fields.Barcode
-	coErr := svc.fillHoldCheckout(userBarcode, barcode, out.PickupLibraryID, sessionToken)
-	if coErr != nil {
-		// on failure, there willl be errors listed in the error string. parse and add them
-		// to the output but don't return a failure error code
-		log.Printf("INFO: fill hold checkout for %s failed: %s", barcode, coErr.string())
-		var msgs sirsiMessageList
-		json.Unmarshal([]byte(coErr.Message), &msgs)
-		out.ErrorMessages = msgs.MessageList
+	if success == false {
+		out.ErrorMessages = errors
 	}
 
 	c.JSON(http.StatusOK, out)
 }
 
-func (svc *serviceContext) fillHoldUntransitItem(barcode, library, sessionToken string) (string, *requestError) {
-	log.Printf("INFO: untransit %s", barcode)
+func (svc *serviceContext) fillHoldUntransitItem(tgt fillHoldInfo, sessionToken string) (string, *requestError) {
+	log.Printf("INFO: untransit %s[%s]", tgt.Barcode, tgt.Key)
 	req := struct {
 		ItemBarcode string `json:"itemBarcode"`
 	}{
-		ItemBarcode: barcode,
+		ItemBarcode: tgt.Barcode,
 	}
 	payloadBytes, _ := json.Marshal(req)
 	uri := "/circulation/transit/untransit"
 	overrides := []string{"CKOBLOCKS", "/OK"}
 	headers := make(map[string]string)
 	headers["x-sirs-clientID"] = "ILL_CKOUT"
-	headers["sd-working-libraryid"] = library
+	headers["sd-working-libraryid"] = tgt.PickupLibraryID
 	headers["x-sirs-sessionToken"] = sessionToken
 	log.Printf("INFO: untransit payload: %s", payloadBytes)
 
@@ -422,30 +473,31 @@ func (svc *serviceContext) fillHoldUntransitItem(barcode, library, sessionToken 
 		re := requestError{StatusCode: http.StatusInternalServerError, Message: err.Error()}
 		return "", &re
 	}
-	log.Printf("INFO: %s untransit request results in status: %s", barcode, untResp.CurrentStatus)
+	log.Printf("INFO: %s[%s] untransit request results in status: %s", tgt.Barcode, tgt.Key, untResp.CurrentStatus)
 	return untResp.CurrentStatus, nil
 }
 
-func (svc *serviceContext) fillHoldCheckout(userBarcode, barcode, library, sessionToken string) *requestError {
-	log.Printf("INFO: user %s fillhold checkout item %s", userBarcode, barcode)
+func (svc *serviceContext) fillHoldCheckout(tgt fillHoldInfo, sessionToken string) *requestError {
+	log.Printf("INFO: fillhold checkout %s[%s] from user %s", tgt.Barcode, tgt.Key, tgt.UserID)
 	req := struct {
 		PatronBarcode string `json:"patronBarcode"`
 		ItemBarcode   string `json:"itemBarcode"`
 	}{
-		PatronBarcode: userBarcode,
-		ItemBarcode:   barcode,
+		PatronBarcode: tgt.UserBarcode,
+		ItemBarcode:   tgt.Barcode,
 	}
 	payloadBytes, _ := json.Marshal(req)
 	uri := "/circulation/circRecord/checkOut"
 	overrides := []string{"CKOBLOCKS"}
 	headers := make(map[string]string)
 	headers["x-sirs-clientID"] = "ILL_CKOUT"
-	headers["sd-working-libraryid"] = library
+	headers["sd-working-libraryid"] = tgt.PickupLibraryID
 	headers["x-sirs-sessionToken"] = sessionToken
 	log.Printf("INFO: fillhold checkout payload: %s", payloadBytes)
 	_, sirsiErr := svc.retrySirsiRequest(uri, payloadBytes, headers, overrides, "")
 	if sirsiErr != nil {
 		return sirsiErr
 	}
+	log.Printf("INFO: fillhold checkout %s[%s] was successful", tgt.Barcode, tgt.Key)
 	return nil
 }
