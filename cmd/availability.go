@@ -189,20 +189,27 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		log.Printf("INFO: key %s not in sirsi", catKey)
 	} else {
 		log.Printf("INFO: get availability for %s", catKey)
+		notFound := false
 		bibResp, sirsiErr := svc.getSirsiItem(catKey)
 		if sirsiErr != nil {
 			log.Printf("ERROR: get sirsi item %s failed: %s", catKey, sirsiErr.string())
-			c.String(sirsiErr.StatusCode, sirsiErr.Message)
-			return
+			if sirsiErr.StatusCode != 404 {
+				c.String(sirsiErr.StatusCode, sirsiErr.Message)
+				return
+			}
+			log.Printf("WARN: %s was not found in sirsi", catKey)
+			notFound = true
 		}
 
-		// parse sirsi data into an easier to manage format
-		items = svc.parseItemsFromSirsi(bibResp)
+		if notFound == false {
+			// parse sirsi data into an easier to manage format
+			items = svc.parseItemsFromSirsi(bibResp)
 
-		availResp.TitleID = bibResp.Key
-		svc.addLibraryItems(&availResp, items)
-		availResp.BoundWith = svc.processBoundWithItems(bibResp)
-		availResp.RequestOptions = svc.generateRequestOptions(c.GetString("jwt"), availResp.TitleID, items, bibResp.Fields.MarcRecord)
+			availResp.TitleID = bibResp.Key
+			svc.addLibraryItems(&availResp, items)
+			availResp.BoundWith = svc.processBoundWithItems(bibResp)
+			availResp.RequestOptions = svc.generateRequestOptions(c.GetString("jwt"), availResp.TitleID, items, bibResp.Fields.MarcRecord)
+		}
 	}
 
 	// Now pull the solr doc for this item and use it to add and extra options for special collections, streaming video and health science
