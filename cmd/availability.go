@@ -208,7 +208,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 			availResp.TitleID = bibResp.Key
 			svc.addLibraryItems(&availResp, items)
 			availResp.BoundWith = svc.processBoundWithItems(bibResp)
-			availResp.RequestOptions = svc.generateRequestOptions(c.GetString("jwt"), availResp.TitleID, items, bibResp.Fields.MarcRecord)
+			availResp.RequestOptions = svc.generateRequestOptions(c, availResp.TitleID, items, bibResp.Fields.MarcRecord)
 		}
 	}
 

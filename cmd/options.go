@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/go-querystring/query"
 )
 
@@ -28,7 +29,7 @@ type requestOption struct {
 	CreateURL        string         `json:"create_url"`
 }
 
-func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string, items []availItem, marc sirsiBibData) []requestOption {
+func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string, items []availItem, marc sirsiBibData) []requestOption {
 	out := make([]requestOption, 0)
 	holdableItems := make([]holdableItem, 0)
 	videoItemOpts := make([]holdableItem, 0)
@@ -57,7 +58,15 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 			if item.IsVideo {
 				videoItemOpts = append(videoItemOpts, holdableItem)
 			} else {
-				scanItemOpts = append(scanItemOpts, holdableItem)
+				v4Claims, _ := getVirgoClaims(c)
+				ucaseProfile := strings.ToUpper(v4Claims.Profile)
+				noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER"}
+				if listContains(noScanProfiles, ucaseProfile) == false && v4Claims.HomeLibrary != "HEALTHSCI" {
+					scanItemOpts = append(scanItemOpts, holdableItem)
+				} else {
+					log.Printf("INFO: user %s with profile [%s] and home library [%s] is not able to request scans",
+						v4Claims.UserID, v4Claims.Profile, v4Claims.HomeLibrary)
+				}
 			}
 		}
 	}
@@ -88,7 +97,7 @@ func (svc *serviceContext) generateRequestOptions(userJWT string, titleID string
 		url := fmt.Sprintf("%s/check/%s", svc.PDAURL, titleID)
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("User-Agent", "Golang_ILS_Connector")
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", userJWT))
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.GetString("jwt")))
 		_, err := svc.sendRequest("pda-ws", svc.HTTPClient, req)
 		if err != nil {
 			if err.StatusCode == 404 {
