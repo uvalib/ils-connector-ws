@@ -60,7 +60,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			} else {
 				v4Claims, _ := getVirgoClaims(c)
 				ucaseProfile := strings.ToUpper(v4Claims.Profile)
-				noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER"}
+				noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER", "UNDERGRAD"}
 				if listContains(noScanProfiles, ucaseProfile) == false && v4Claims.HomeLibrary != "HEALTHSCI" {
 					scanItemOpts = append(scanItemOpts, holdableItem)
 				} else {
