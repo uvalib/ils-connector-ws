@@ -30,12 +30,14 @@ type requestOption struct {
 }
 
 func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string, items []availItem, marc sirsiBibData) []requestOption {
-	log.Printf("INFO: generate request options for %s", titleID)
+	log.Printf("INFO: generate request options for %s with %d items", titleID, len(items))
 	out := make([]requestOption, 0)
 	holdableItems := make([]holdableItem, 0)
 	videoItemOpts := make([]holdableItem, 0)
 	scanItemOpts := make([]holdableItem, 0)
 	var atoItem *availItem
+	v4Claims, _ := getVirgoClaims(c)
+	noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER", "UNDERGRAD"}
 
 	for _, item := range items {
 		// track available to order items for later use
@@ -59,9 +61,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			if item.IsVideo {
 				videoItemOpts = append(videoItemOpts, holdableItem)
 			} else {
-				v4Claims, _ := getVirgoClaims(c)
 				ucaseProfile := strings.ToUpper(v4Claims.Profile)
-				noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER", "UNDERGRAD"}
 				if listContains(noScanProfiles, ucaseProfile) == false && v4Claims.HomeLibrary != "HEALTHSCI" {
 					scanItemOpts = append(scanItemOpts, holdableItem)
 				} else {
@@ -71,6 +71,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			}
 		}
 	}
+	log.Printf("INFO: %d holdable items found", len(holdableItems))
 
 	if len(holdableItems) > 0 {
 		log.Printf("INFO: add hold options for %s", titleID)
