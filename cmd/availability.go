@@ -398,10 +398,13 @@ func (svc *serviceContext) processBoundWithItems(bibResp *sirsiBibResponse) []bo
 		bwParent := extractBoundWithRec(bibResp.Fields.BoundWithList[0].Fields.Parent)
 		bwParent.IsParent = true
 		out = append(out, bwParent)
+		log.Printf("INFO: extracted bound with parent %s; processing %d children", bwParent.TitleID, len(bibResp.Fields.BoundWithList[0].Fields.ChildList))
+
 		for _, child := range bibResp.Fields.BoundWithList[0].Fields.ChildList {
 			out = append(out, extractBoundWithRec(child))
 		}
 	}
+	log.Printf("INFO: process bound with for %s has completed", bibResp.Key)
 	return out
 }
 

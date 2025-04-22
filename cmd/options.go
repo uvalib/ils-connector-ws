@@ -30,6 +30,7 @@ type requestOption struct {
 }
 
 func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string, items []availItem, marc sirsiBibData) []requestOption {
+	log.Printf("INFO: generate request options for %s", titleID)
 	out := make([]requestOption, 0)
 	holdableItems := make([]holdableItem, 0)
 	videoItemOpts := make([]holdableItem, 0)
