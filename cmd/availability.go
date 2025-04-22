@@ -374,7 +374,7 @@ func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requ
 	fields := "boundWithList{*},bib,callList{dispCallNumber,volumetric,shadowed,library{description},"
 	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
 	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
-	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
 	if sirsiErr != nil {
 		return nil, sirsiErr
 	}
