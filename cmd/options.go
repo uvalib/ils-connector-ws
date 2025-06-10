@@ -35,9 +35,11 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 	holdableItems := make([]holdableItem, 0)
 	videoItemOpts := make([]holdableItem, 0)
 	scanItemOpts := make([]holdableItem, 0)
+	blockHSScans := false
 	var atoItem *availItem
 	v4Claims, _ := getVirgoClaims(c)
 	noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER", "UNDERGRAD"}
+	noScanHomeLocations := []string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}
 
 	for _, item := range items {
 		// track available to order items for later use
@@ -54,6 +56,10 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		holdableItem := item.toHoldableItem("")
 		if svc.Locations.isMediumRare(item.HomeLocationID) {
 			holdableItem.CallNumber += " (Ivy limited circulation)"
+		}
+		if slices.Contains(noScanHomeLocations, item.HomeLocationID) {
+			log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
+			blockHSScans = true
 		}
 		if holdableExists(holdableItem, item.Volume, holdableItems) == false {
 			holdableItems = append(holdableItems, holdableItem)
@@ -87,11 +93,15 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		})
 	}
 
-	if len(scanItemOpts) > 0 {
-		log.Printf("INFO: add scan options for %s", titleID)
-		out = append(out, requestOption{Type: "scan", SignInRequired: true,
-			ItemOptions: scanItemOpts,
-		})
+	if blockHSScans {
+		log.Printf("INFO: scan option for %s is blocked because home location is one of %v", titleID, noScanHomeLocations)
+	} else {
+		if len(scanItemOpts) > 0 {
+			log.Printf("INFO: add scan options for %s", titleID)
+			out = append(out, requestOption{Type: "scan", SignInRequired: true,
+				ItemOptions: scanItemOpts,
+			})
+		}
 	}
 
 	if atoItem != nil {
