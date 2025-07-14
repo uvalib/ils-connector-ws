@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -63,7 +62,7 @@ func (svc *serviceContext) refreshLocations() {
 func (svc *serviceContext) getSirsiLocations() {
 	log.Printf("INFO: get sirsi locations")
 	svc.Locations.Records = make([]locationRec, 0)
-	url := fmt.Sprintf("/policy/location/simpleQuery?key=*&includeFields=key,policyNumber,description,shadowed")
+	url := "/policy/location/simpleQuery?key=*&includeFields=key,policyNumber,description,shadowed"
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
 		log.Printf("ERROR: unable to get locations: %s", sirsiErr.Message)
@@ -94,7 +93,7 @@ func (svc *serviceContext) getSirsiLocations() {
 func (svc *serviceContext) getSirsiReserveLocations() {
 	log.Printf("INFO: get sirsi reserve locations")
 	svc.Locations.ReserveLocations = make([]string, 0)
-	url := fmt.Sprintf("/policy/reserveCollection/simpleQuery?key=*&includeFields=key,location{key}")
+	url := "/policy/reserveCollection/simpleQuery?key=*&includeFields=key,location{key}"
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
 		log.Printf("ERROR: unable to get reserve locations: %s", sirsiErr.Message)

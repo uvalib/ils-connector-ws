@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -44,7 +43,7 @@ func (svc *serviceContext) refreshLibraries() {
 		svc.Libraries.OnShelf = loadDataFile("./data/onshelf-lib.txt")
 	}
 
-	url := fmt.Sprintf("/policy/library/simpleQuery?key=*&includeFields=key,policyNumber,description")
+	url := "/policy/library/simpleQuery?key=*&includeFields=key,policyNumber,description"
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, url)
 	if sirsiErr != nil {
 		log.Printf("ERROR: get libraries failed: %s", sirsiErr.string())

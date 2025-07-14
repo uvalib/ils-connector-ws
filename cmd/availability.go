@@ -424,17 +424,18 @@ func getMarcValue(marc sirsiBibData, tag, code string) string {
 	out := ""
 	for _, mf := range marc.Fields {
 		if mf.Tag == tag {
-			if code == "first" {
+			switch code {
+			case "first":
 				out = mf.Subfields[0].Data
-			} else if code == "last" {
+			case "last":
 				out = mf.Subfields[len(mf.Subfields)-1].Data
-			} else if code == "all" {
+			case "all":
 				var vals []string
 				for _, sf := range mf.Subfields {
 					vals = append(vals, sf.Data)
 				}
 				out = strings.Join(vals, " ")
-			} else {
+			default:
 				for _, sf := range mf.Subfields {
 					if sf.Code == code {
 						out = sf.Data

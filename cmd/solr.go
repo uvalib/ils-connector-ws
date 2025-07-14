@@ -38,7 +38,7 @@ type solrDocument struct {
 	Title             []string `json:"title_a,omitempty"`
 	URL               []string `json:"url_a,omitempty"`
 	Volume            string   `json:"-"`
-	WorkTypes         []string `json:"workType_a,omitempty" json:"type_of_record_a,omitempty" json:"medium_a,omitempty"`
+	WorkTypes         []string `json:"workType_a,omitempty"`
 }
 
 func (doc solrDocument) fieldList() string {

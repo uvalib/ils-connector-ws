@@ -186,7 +186,7 @@ func (svc *serviceContext) deleteHold(c *gin.Context) {
 	log.Printf("%+v", hold)
 
 	holdOwner := hold.Fields.Patron.Fields.AlternateID
-	if strings.ToUpper(holdOwner) != strings.ToUpper(v4Claims.UserID) {
+	if !strings.EqualFold(holdOwner, v4Claims.UserID) {
 		log.Printf("ERROR: hold user mismatch user %s vs hold patron %s", v4Claims.UserID, holdOwner)
 		c.String(http.StatusBadRequest, "you do not hold this item")
 		return

@@ -357,7 +357,7 @@ func (svc *serviceContext) searchCourseReserves(c *gin.Context) {
 	} else {
 		// course IDs are in all upper case. force query to match
 		queryStr = strings.ToUpper(queryStr)
-		if strings.Index(queryStr, " ") != -1 {
+		if strings.Contains(queryStr, " ") {
 			queryStr = strings.ReplaceAll(queryStr, " ", "\\ ")
 			queryStr = url.QueryEscape(queryStr)
 		}

@@ -287,7 +287,7 @@ func createAeonURL(doc *solrDocument) string {
 func holdableExists(tgtItem holdableItem, volume string, holdableItems []holdableItem) bool {
 	exist := false
 	for _, hi := range holdableItems {
-		if strings.ToUpper(hi.CallNumber) == strings.ToUpper(tgtItem.CallNumber) {
+		if strings.EqualFold(hi.CallNumber, tgtItem.CallNumber) {
 			exist = true
 			break
 		}
