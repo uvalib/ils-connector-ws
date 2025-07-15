@@ -269,12 +269,16 @@ func (svc *serviceContext) setSirsiHeaders(req *http.Request, role string, authT
 	req.Header.Set("x-sirs-clientID", svc.SirsiConfig.ClientID)
 	req.Header.Set("x-sirs-locale", "en_US")
 	req.Header.Set("SD-Originating-App-Id", "Virgo")
-	req.Header.Set("SD-Preferred-Role", role)
+	if role != "" {
+		req.Header.Set("SD-Preferred-Role", role)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	if authToken != "" {
 		req.Header.Set("x-sirs-sessionToken", authToken)
 	}
+	// jsonH, _ := json.Marshal(req.Header)
+	// log.Printf("HEADERS: %s", jsonH)
 }
 
 func (svc *serviceContext) sendRequest(serviceName string, httpClient *http.Client, request *http.Request) ([]byte, *requestError) {

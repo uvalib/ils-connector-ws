@@ -216,14 +216,14 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 
 	log.Printf("INFO: %s signed in; change password...", passReq.UserBarcode)
 	changeReq := struct {
-		NewPass  string `json:"newPin"`
-		CurrPass string `json:"currentPin"`
+		NewPass  string `json:"newPassword"`
+		CurrPass string `json:"currentPassword"`
 	}{
 		NewPass:  passReq.NewPassword,
 		CurrPass: passReq.CurrPassword,
 	}
 	payloadBytes, _ := json.Marshal(changeReq)
-	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
+	url := fmt.Sprintf("%s/user/patron/changeMyPassword", svc.SirsiConfig.WebServicesURL)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	svc.setSirsiHeaders(req, "PATRON", respObj.SessionToken)
 	_, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
@@ -254,13 +254,13 @@ func (svc *serviceContext) forgotPassword(c *gin.Context) {
 	}
 	log.Printf("INFO: user %s forgot password", req.UserBarcode)
 	data := struct {
-		Login    string `json:"login"`
-		ResetURL string `json:"resetPinUrl"`
+		Barcode  string `json:"barcode"`
+		ResetURL string `json:"resetPasswordUrl"`
 	}{
-		Login:    req.UserBarcode,
-		ResetURL: fmt.Sprintf("%s/signin?token=<RESET_PIN_TOKEN>", svc.VirgoURL),
+		Barcode:  req.UserBarcode,
+		ResetURL: fmt.Sprintf("%s/signin?token=<RESET_PASSWORD_TOKEN>", svc.VirgoURL),
 	}
-	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/resetMyPin", data)
+	_, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/resetMyPassword", data)
 	if sirsiErr != nil {
 		log.Printf("ERROR: %s forgot password failed: %s", req.UserBarcode, sirsiErr.string())
 		c.String(sirsiErr.StatusCode, sirsiErr.Message)
@@ -278,30 +278,32 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 		Token   string `json:"reset_password_token"`
 		NewPass string `json:"new_password"`
 	}
+
 	qpErr := c.ShouldBindJSON(&qp)
 	if qpErr != nil {
 		log.Printf("ERROR: invalid change password payload: %v", qpErr)
 		c.String(http.StatusBadRequest, "Invalid request")
 		return
 	}
+	log.Printf("INFO: change password with token %s", qp.Token)
 
 	data := struct {
-		Token    string `json:"resetPinToken"`
-		Password string `json:"newPin"`
+		Token    string `json:"resetPasswordToken"`
+		Password string `json:"newPassword"`
 	}{
 		Token:    qp.Token,
 		Password: qp.NewPass,
 	}
 	payloadBytes, _ := json.Marshal(data)
-	url := fmt.Sprintf("%s/user/patron/changeMyPin", svc.SirsiConfig.WebServicesURL)
+	url := fmt.Sprintf("%s/user/patron/changeMyPassword", svc.SirsiConfig.WebServicesURL)
 	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
 	if reqErr != nil {
 		log.Printf("ERROR: unable to create post request for token change password request: %s", reqErr.Error())
 		c.String(http.StatusInternalServerError, reqErr.Error())
 		return
 	}
-	svc.setSirsiHeaders(req, "PATRON", "")
-	_, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
+	svc.setSirsiHeaders(req, "", "")
+	rawResp, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if changeErr != nil {
 		log.Printf("WARNING: token password change failed: %s", changeErr.string())
 		var msg sirsiMessageList
@@ -313,6 +315,7 @@ func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
 		}
 		return
 	}
+	log.Printf("INFO: change success response: [%s]", rawResp)
 	c.String(http.StatusOK, "token password changed")
 }
 
