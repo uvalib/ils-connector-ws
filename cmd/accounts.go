@@ -96,6 +96,11 @@ func (a tmpAccount) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+type sirsiChangePassResponse struct {
+	SessionToken string `json:"sessionToken"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
 //	curl --request POST  \
 //	  --url http://localhost:8185/users/check_password \
 //	  --header 'Content-Type: application/json' \
@@ -193,24 +198,10 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 		Login:    passReq.UserBarcode,
 		Password: passReq.CurrPassword,
 	}
-
-	loginResp, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/login", loginReq)
-	if sirsiErr != nil {
-		if sirsiErr.StatusCode == 401 {
-			log.Printf("INFO: change pass for %s failed for incorrect password", passReq.UserBarcode)
-			c.String(http.StatusUnauthorized, "incorrect password")
-		} else {
-			log.Printf("ERROR: change pass for %s failed: %s", passReq.UserBarcode, sirsiErr.string())
-			c.String(sirsiErr.StatusCode, sirsiErr.Message)
-		}
-		return
-	}
-
-	var respObj sirsiSigniResponse
-	parseErr := json.Unmarshal(loginResp, &respObj)
-	if parseErr != nil {
-		log.Printf("ERROR: unable to parse %s login response: %s", passReq.UserBarcode, parseErr)
-		c.String(http.StatusInternalServerError, parseErr.Error())
+	sessionToken, loginErr := svc.startPatronSession(loginReq)
+	if loginErr != nil {
+		log.Printf("ERROR: unable to start patron %s session for password change: %s", passReq.UserBarcode, loginErr.Message)
+		c.String(loginErr.StatusCode, loginErr.Message)
 		return
 	}
 
@@ -222,23 +213,62 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 		NewPass:  passReq.NewPassword,
 		CurrPass: passReq.CurrPassword,
 	}
+	cErr := svc.sendPaswordChangeRequest(changeReq, sessionToken)
+	if cErr != nil {
+		log.Printf("INFO: password change failed: %s", cErr.string())
+		c.String(cErr.StatusCode, cErr.Message)
+	}
+
+	c.String(http.StatusOK, "password changed")
+}
+
+func (svc *serviceContext) sendPaswordChangeRequest(changeReq any, sessionToken string) *requestError {
 	payloadBytes, _ := json.Marshal(changeReq)
 	url := fmt.Sprintf("%s/user/patron/changeMyPassword", svc.SirsiConfig.WebServicesURL)
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	svc.setSirsiHeaders(req, "PATRON", respObj.SessionToken)
-	_, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
+	svc.setSirsiHeaders(req, "", sessionToken)
+	changeResp, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if changeErr != nil {
-		log.Printf("WARNING: %s password change failed: %s", passReq.UserBarcode, changeErr.string())
 		var msg sirsiMessageList
 		err := json.Unmarshal([]byte(changeErr.Message), &msg)
 		if err != nil {
-			c.String(http.StatusInternalServerError, changeErr.string())
-		} else {
-			c.String(http.StatusUnauthorized, msg.MessageList[0].Message)
+			reqErr := requestError{StatusCode: http.StatusInternalServerError, Message: changeErr.string()}
+			return &reqErr
 		}
-		return
+		reqErr := requestError{StatusCode: http.StatusBadRequest, Message: msg.MessageList[0].Message}
+		return &reqErr
 	}
-	c.String(http.StatusOK, "password changed")
+
+	log.Printf("INFO: raw change password response: %s", changeResp)
+	log.Printf("INFO: parse change response to see if it was success or fail")
+	var jsonResp sirsiChangePassResponse
+	respErr := json.Unmarshal(changeResp, &jsonResp)
+	if respErr != nil {
+		reqErr := requestError{StatusCode: http.StatusInternalServerError, Message: respErr.Error()}
+		return &reqErr
+	}
+	if jsonResp.ErrorMessage != "" {
+		reqErr := requestError{StatusCode: http.StatusBadRequest, Message: jsonResp.ErrorMessage}
+		return &reqErr
+	}
+	log.Printf("INFO: password change succeeded")
+	return nil
+}
+
+func (svc *serviceContext) startPatronSession(loginPayload any) (string, *requestError) {
+	loginResp, sirsiErr := svc.sirsiPost(svc.HTTPClient, "/user/patron/login", loginPayload)
+	if sirsiErr != nil {
+		return "", sirsiErr
+	}
+
+	var respObj sirsiSigniResponse
+	parseErr := json.Unmarshal(loginResp, &respObj)
+	if parseErr != nil {
+		err := requestError{StatusCode: http.StatusInternalServerError, Message: parseErr.Error()}
+		return "", &err
+	}
+
+	return respObj.SessionToken, nil
 }
 
 // curl -X POST http://localhost:8185/users/C000011111/forgot_password
@@ -269,54 +299,65 @@ func (svc *serviceContext) forgotPassword(c *gin.Context) {
 	c.String(http.StatusOK, "ok")
 }
 
-//	curl --request POST  \
-//		--url http://localhost:8185/users/change_password_with_token \
-//		--header 'Content-Type: application/json' \
-//		--data '{"reset_password_token": "7bbaN2fr1WDWueRLpq8bB8npsow4mJ8iK7ilXlAP64zq6g1jvZ", "new_password": "PASS"}'
-func (svc *serviceContext) changePasswordWithToken(c *gin.Context) {
+// first call this with the reset password token to establish a reset session and return it to the client
+func (svc *serviceContext) startResetPasswordSession(c *gin.Context) {
 	var qp struct {
-		Token   string `json:"reset_password_token"`
-		NewPass string `json:"new_password"`
+		Token string `json:"resetPasswordToken"`
 	}
-
 	qpErr := c.ShouldBindJSON(&qp)
 	if qpErr != nil {
 		log.Printf("ERROR: invalid change password payload: %v", qpErr)
 		c.String(http.StatusBadRequest, "Invalid request")
 		return
 	}
-	log.Printf("INFO: change password with token %s", qp.Token)
+	log.Printf("INFO: start change password session with token %s", qp.Token)
+	loginReq := struct {
+		Token string `json:"pinToken"`
+	}{
+		Token: qp.Token,
+	}
+	sessionToken, loginErr := svc.startPatronSession(loginReq)
+	if loginErr != nil {
+		log.Printf("ERROR: unable to start session for password change with token %s: %s", qp.Token, loginErr.Message)
+		c.String(loginErr.StatusCode, loginErr.Message)
+		return
+	}
+	log.Printf("INFO: change password session started")
+	c.String(http.StatusOK, sessionToken)
+}
+
+// once above call establishes a change session, call this to try the reset
+//
+//	curl --request POST  \
+//		--url http://localhost:8185/users/reset_password \
+//		--header 'Content-Type: application/json' \
+//		--data '{"session": "7bbaN2fr1WDWueRLpq8bB8npsow4mJ8iK7ilXlAP64zq6g1jvZ", "new_password": "PASS"}'
+func (svc *serviceContext) resetPassword(c *gin.Context) {
+	var qp struct {
+		Session string `json:"session"`
+		NewPass string `json:"newPassword"`
+	}
+
+	qpErr := c.ShouldBindJSON(&qp)
+	if qpErr != nil {
+		log.Printf("ERROR: invalid reset password payload: %v", qpErr)
+		c.String(http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	log.Printf("INFO: reset password with session %s", qp.Session)
 
 	data := struct {
-		Token    string `json:"resetPasswordToken"`
 		Password string `json:"newPassword"`
 	}{
-		Token:    qp.Token,
 		Password: qp.NewPass,
 	}
-	payloadBytes, _ := json.Marshal(data)
-	url := fmt.Sprintf("%s/user/patron/changeMyPassword", svc.SirsiConfig.WebServicesURL)
-	req, reqErr := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	if reqErr != nil {
-		log.Printf("ERROR: unable to create post request for token change password request: %s", reqErr.Error())
-		c.String(http.StatusInternalServerError, reqErr.Error())
-		return
+	cErr := svc.sendPaswordChangeRequest(data, qp.Session)
+	if cErr != nil {
+		log.Printf("INFO: password change failed: %s", cErr.string())
+		c.String(cErr.StatusCode, cErr.Message)
 	}
-	svc.setSirsiHeaders(req, "", "")
-	rawResp, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
-	if changeErr != nil {
-		log.Printf("WARNING: token password change failed: %s", changeErr.string())
-		var msg sirsiMessageList
-		err := json.Unmarshal([]byte(changeErr.Message), &msg)
-		if err != nil {
-			c.String(http.StatusInternalServerError, changeErr.string())
-		} else {
-			c.String(http.StatusUnauthorized, msg.MessageList[0].Message)
-		}
-		return
-	}
-	log.Printf("INFO: change success response: [%s]", rawResp)
-	c.String(http.StatusOK, "token password changed")
+	c.String(http.StatusOK, "password changed")
 }
 
 //	curl --request POST  \
