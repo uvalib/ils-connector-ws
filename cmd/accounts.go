@@ -217,6 +217,7 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	if cErr != nil {
 		log.Printf("INFO: password change failed: %s", cErr.string())
 		c.String(cErr.StatusCode, cErr.Message)
+		return
 	}
 
 	c.String(http.StatusOK, "password changed")
@@ -356,6 +357,7 @@ func (svc *serviceContext) resetPassword(c *gin.Context) {
 	if cErr != nil {
 		log.Printf("INFO: password change failed: %s", cErr.string())
 		c.String(cErr.StatusCode, cErr.Message)
+		return
 	}
 	c.String(http.StatusOK, "password changed")
 }
