@@ -36,20 +36,6 @@ type sirsiRenewResponse struct {
 	} `json:"circRecord"`
 }
 
-type sirsiCheckoutBarcodesResponse struct {
-	Fields struct {
-		CircRecordList []struct {
-			Fields struct {
-				Item struct {
-					Fields struct {
-						Barcode string `json:"barcode"`
-					} `json:"fields"`
-				} `json:"item"`
-			} `json:"fields"`
-		} `json:"circRecordList"`
-	} `json:"fields"`
-}
-
 func (svc *serviceContext) renewCheckouts(c *gin.Context) {
 	var req renewRequest
 	err := c.ShouldBindJSON(&req)

@@ -59,11 +59,10 @@ func main() {
 	router.POST("/metadata/:cat_key/update_rights", svc.sirsiAuthMiddleware, svc.updateMetadataRights)
 
 	// account management
-	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)                           // verify user pass without creating a session
-	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword)                         // signed in user changes password
-	router.POST("/users/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword)                         // reset step 1: signed out user requests password reset email
-	router.POST("/users/start_reset_password_session", svc.sirsiAuthMiddleware, svc.startResetPasswordSession) // reset step 2: begin a passeword reset sesssion with the reset token
-	router.POST("/users/reset_password", svc.sirsiAuthMiddleware, svc.resetPassword)                           // reset step 3: use the reset session to attempt password reset
+	router.POST("/users/check_password", svc.sirsiAuthMiddleware, svc.checkPassword)   // verify user pass without creating a session
+	router.POST("/users/change_password", svc.sirsiAuthMiddleware, svc.changePassword) // signed in user changes password
+	router.POST("/users/forgot_password", svc.sirsiAuthMiddleware, svc.forgotPassword) // reset step 1: signed out user requests password reset email
+	router.POST("/users/reset_password", svc.sirsiAuthMiddleware, svc.resetPassword)   // reset step 2+: first use the reset token, subsequent tries use session
 	router.POST("/users/register", svc.sirsiAuthMiddleware, svc.registerNewUser)
 	router.GET("/users/activate/:token", svc.sirsiAuthMiddleware, svc.activateUser)
 

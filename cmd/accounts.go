@@ -223,6 +223,11 @@ func (svc *serviceContext) changePassword(c *gin.Context) {
 	c.String(http.StatusOK, "password changed")
 }
 
+// This is used for signed in users requests a password change and for users that forgot their passwords.
+// In the change case, the request will contain only newPassword and the sessionToken will be present.
+// In thee forgot case there are 2 scenarios:
+//  1. First attempt: the changeReq will include newPassword and resetPasswordToken but sessionToken will an empty string
+//  2. Each other attempt: changeReq only includes newPassword and sessionToken will be set
 func (svc *serviceContext) sendPaswordChangeRequest(changeReq any, sessionToken string) *requestError {
 	payloadBytes, _ := json.Marshal(changeReq)
 	url := fmt.Sprintf("%s/user/patron/changeMyPassword", svc.SirsiConfig.WebServicesURL)
@@ -230,16 +235,13 @@ func (svc *serviceContext) sendPaswordChangeRequest(changeReq any, sessionToken 
 	svc.setSirsiHeaders(req, "", sessionToken)
 	changeResp, changeErr := svc.sendRequest("sirsi", svc.HTTPClient, req)
 	if changeErr != nil {
-		var msg sirsiMessageList
-		err := json.Unmarshal([]byte(changeErr.Message), &msg)
-		if err != nil {
-			reqErr := requestError{StatusCode: http.StatusInternalServerError, Message: changeErr.string()}
-			return &reqErr
-		}
-		reqErr := requestError{StatusCode: http.StatusBadRequest, Message: msg.MessageList[0].Message}
-		return &reqErr
+		// this only happens in a invalid request or http error. Just return the raw error code and message; there
+		// will be no Sirsi messageList present as the request failed outright.
+		return changeErr
 	}
 
+	// NOTE: when a password fails for history or complexity requirements, the response will be SUCCESS
+	// but the payoad will include an errorMessage and new sessionTolem
 	log.Printf("INFO: raw change password response: %s", changeResp)
 	log.Printf("INFO: parse change response to see if it was success or fail")
 	var jsonResp sirsiChangePassResponse
@@ -249,7 +251,9 @@ func (svc *serviceContext) sendPaswordChangeRequest(changeReq any, sessionToken 
 		return &reqErr
 	}
 	if jsonResp.ErrorMessage != "" {
-		reqErr := requestError{StatusCode: http.StatusBadRequest, Message: jsonResp.ErrorMessage}
+		// return the simplified error data which just includes the message and new session
+		failBytes, _ := json.Marshal(jsonResp)
+		reqErr := requestError{StatusCode: http.StatusBadRequest, Message: string(failBytes)}
 		return &reqErr
 	}
 	log.Printf("INFO: password change succeeded")
@@ -300,43 +304,18 @@ func (svc *serviceContext) forgotPassword(c *gin.Context) {
 	c.String(http.StatusOK, "ok")
 }
 
-// first call this with the reset password token to establish a reset session and return it to the client
-func (svc *serviceContext) startResetPasswordSession(c *gin.Context) {
-	var qp struct {
-		Token string `json:"resetPasswordToken"`
-	}
-	qpErr := c.ShouldBindJSON(&qp)
-	if qpErr != nil {
-		log.Printf("ERROR: invalid change password payload: %v", qpErr)
-		c.String(http.StatusBadRequest, "Invalid request")
-		return
-	}
-	log.Printf("INFO: start change password session with token %s", qp.Token)
-	loginReq := struct {
-		Token string `json:"pinToken"`
-	}{
-		Token: qp.Token,
-	}
-	sessionToken, loginErr := svc.startPatronSession(loginReq)
-	if loginErr != nil {
-		log.Printf("ERROR: unable to start session for password change with token %s: %s", qp.Token, loginErr.Message)
-		c.String(loginErr.StatusCode, loginErr.Message)
-		return
-	}
-	log.Printf("INFO: change password session started")
-	c.String(http.StatusOK, sessionToken)
-}
-
-// once above call establishes a change session, call this to try the reset
-//
 //	curl --request POST  \
 //		--url http://localhost:8185/users/reset_password \
 //		--header 'Content-Type: application/json' \
-//		--data '{"session": "7bbaN2fr1WDWueRLpq8bB8npsow4mJ8iK7ilXlAP64zq6g1jvZ", "new_password": "PASS"}'
+//		--data '{"session": "7bbaN2fr1WDWueRLpq8bB8npsow4mJ8iK7ilXlAP64zq6g1jvZ", "newPassword": "PASS"}'
+//
+// IMPORTANT: if the request fails, the response will include a sessionToken. Extract this token and send it in the
+// response. This session will be passed back in subsequent attempts
 func (svc *serviceContext) resetPassword(c *gin.Context) {
 	var qp struct {
-		Session string `json:"session"`
-		NewPass string `json:"newPassword"`
+		Token   string `json:"token"`       // the initial password reset token from the email. Used on the first attempt
+		Session string `json:"session"`     // session returned from failed reset attempts. used in all subsequent attempts
+		NewPass string `json:"newPassword"` // always set
 	}
 
 	qpErr := c.ShouldBindJSON(&qp)
@@ -346,14 +325,27 @@ func (svc *serviceContext) resetPassword(c *gin.Context) {
 		return
 	}
 
-	log.Printf("INFO: reset password with session %s", qp.Session)
-
-	data := struct {
-		Password string `json:"newPassword"`
-	}{
-		Password: qp.NewPass,
+	var payload any
+	if qp.Session != "" {
+		// always prefer session over the reset token
+		log.Printf("INFO: reset password with session %s", qp.Session)
+		payload = struct {
+			Password string `json:"newPassword"`
+		}{
+			Password: qp.NewPass,
+		}
+	} else {
+		log.Printf("INFO: reset password with reset token %s", qp.Token)
+		payload = struct {
+			Password   string `json:"newPassword"`
+			ResetToken string `json:"resetPasswordToken"`
+		}{
+			Password:   qp.NewPass,
+			ResetToken: qp.Token,
+		}
 	}
-	cErr := svc.sendPaswordChangeRequest(data, qp.Session)
+
+	cErr := svc.sendPaswordChangeRequest(payload, qp.Session)
 	if cErr != nil {
 		log.Printf("INFO: password change failed: %s", cErr.string())
 		c.String(cErr.StatusCode, cErr.Message)
