@@ -513,7 +513,13 @@ func (svc *serviceContext) getItemNotice(item availItem) string {
 func (svc *serviceContext) isNonCirculating(item availItem) bool {
 	lib := svc.Libraries.find(item.LibraryID)
 	loc := svc.Locations.find(item.CurrentLocationID)
-	return lib != nil && loc != nil && lib.Circulating == false || loc.Circulating == false
+	return lib != nil && loc != nil && (lib.Circulating == false || loc.Circulating == false)
+}
+
+func (svc *serviceContext) canScan(item availItem) bool {
+	lib := svc.Libraries.find(item.LibraryID)
+	loc := svc.Locations.find(item.CurrentLocationID)
+	return lib != nil && loc != nil && lib.Scannable && loc.Scannable
 }
 
 func (svc *serviceContext) getAvailabilityList(c *gin.Context) {

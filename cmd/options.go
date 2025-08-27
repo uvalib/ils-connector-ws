@@ -35,11 +35,18 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 	holdableItems := make([]holdableItem, 0)
 	videoItemOpts := make([]holdableItem, 0)
 	scanItemOpts := make([]holdableItem, 0)
-	blockHSScans := false
+	noScans := false
 	var atoItem *availItem
 	v4Claims, _ := getVirgoClaims(c)
+	ucaseProfile := strings.ToUpper(v4Claims.Profile)
 	noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER", "UNDERGRAD"}
 	noScanHomeLocations := []string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}
+
+	if slices.Contains(noScanProfiles, ucaseProfile) || v4Claims.HomeLibrary == "HEALTHSCI" {
+		noScans = true
+		log.Printf("INFO: user %s with profile [%s] and home library [%s] is not able to request scans",
+			v4Claims.UserID, v4Claims.Profile, v4Claims.HomeLibrary)
+	}
 
 	for _, item := range items {
 		// track available to order items for later use
@@ -47,33 +54,38 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			atoItem = &item
 		}
 
-		// unavailable or non circulating items are not holdable. This assumes (per original code)
-		// that al users can request onshelf items. NOTE: this blocks SPEC-COLL items from the holdable list
-		if item.Unavailable || svc.isNonCirculating(item) {
+		// item must be available to be held/scanned
+		if item.Unavailable {
 			continue
 		}
 
+		// convert raw item data into a simplified holdable item and append special info for medium rare items
 		holdableItem := item.toHoldableItem("")
 		if svc.Locations.isMediumRare(item.HomeLocationID) {
 			holdableItem.CallNumber += " (Ivy limited circulation)"
 		}
-		if slices.Contains(noScanHomeLocations, item.HomeLocationID) {
-			log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
-			blockHSScans = true
+
+		// First check to see if an item can be scanned since some non-circulating items are eligible for scanning
+		if item.IsVideo == false && noScans == false && svc.canScan(item) {
+			if slices.Contains(noScanHomeLocations, item.HomeLocationID) {
+				log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
+				noScans = true
+				scanItemOpts = slices.Delete(scanItemOpts, 0, len(scanItemOpts))
+			} else {
+				scanItemOpts = append(scanItemOpts, holdableItem)
+			}
 		}
+
+		// non circulating items are not holdable. This assumes (per original code)
+		// that all users can request onshelf items. NOTE: this blocks SPEC-COLL items from the holdable list
+		if svc.isNonCirculating(item) {
+			continue
+		}
+
 		if holdableExists(holdableItem, item.Volume, holdableItems) == false {
 			holdableItems = append(holdableItems, holdableItem)
-
 			if item.IsVideo {
 				videoItemOpts = append(videoItemOpts, holdableItem)
-			} else {
-				ucaseProfile := strings.ToUpper(v4Claims.Profile)
-				if listContains(noScanProfiles, ucaseProfile) == false && v4Claims.HomeLibrary != "HEALTHSCI" {
-					scanItemOpts = append(scanItemOpts, holdableItem)
-				} else {
-					log.Printf("INFO: user %s with profile [%s] and home library [%s] is not able to request scans",
-						v4Claims.UserID, v4Claims.Profile, v4Claims.HomeLibrary)
-				}
 			}
 		}
 	}
@@ -87,21 +99,17 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 	}
 
 	if len(videoItemOpts) > 0 {
-		log.Printf("INFO: add video reserve options for %s", titleID)
+		log.Printf("INFO: add %d video reserve options for %s", len(videoItemOpts), titleID)
 		out = append(out, requestOption{Type: "videoReserve", SignInRequired: true,
 			ItemOptions: videoItemOpts,
 		})
 	}
 
-	if blockHSScans {
-		log.Printf("INFO: scan option for %s is blocked because home location is one of %v", titleID, noScanHomeLocations)
-	} else {
-		if len(scanItemOpts) > 0 {
-			log.Printf("INFO: add scan options for %s", titleID)
-			out = append(out, requestOption{Type: "scan", SignInRequired: true,
-				ItemOptions: scanItemOpts,
-			})
-		}
+	if len(scanItemOpts) > 0 {
+		log.Printf("INFO: add %d scan options for %s", len(scanItemOpts), titleID)
+		out = append(out, requestOption{Type: "scan", SignInRequired: true,
+			ItemOptions: scanItemOpts,
+		})
 	}
 
 	if atoItem != nil {
@@ -132,8 +140,8 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 }
 
 func (svc *serviceContext) addStreamingVideoOption(solrDoc *solrDocument, avail *availabilityResponse) {
-	if solrDoc.Pool[0] == "video" && (listContains(solrDoc.Location, "Internet materials") ||
-		listContains(solrDoc.Source, "Avalon")) {
+	if solrDoc.Pool[0] == "video" && (slices.Contains(solrDoc.Location, "Internet materials") ||
+		slices.Contains(solrDoc.Source, "Avalon")) {
 
 		log.Printf("Adding streaming video reserve option")
 		option := requestOption{
@@ -165,7 +173,7 @@ func (svc *serviceContext) updateHSLScanOptions(solrDoc *solrDocument, avail *av
 func (svc *serviceContext) addAeonRequestOptions(result *availabilityResponse, solrDoc *solrDocument, availItems []availItem) {
 	log.Printf("INFO: add aeon request options")
 
-	if !(listContains(solrDoc.Library, "Special Collections")) {
+	if !(slices.Contains(solrDoc.Library, "Special Collections")) {
 		log.Printf("INFO: item %s library is not special collections; nothing to do", result.TitleID)
 		return
 	}
@@ -242,10 +250,10 @@ func createAeonURL(doc *solrDocument) string {
 	// Decide monograph or manuscript
 	formValue := "GenericRequestMonograph"
 
-	if listContains(doc.WorkTypes, "manuscript") ||
-		listContains(doc.Medium, "manuscript") ||
-		listContains(doc.Format, "manuscript") ||
-		listContains(doc.WorkTypes, "collection") {
+	if slices.Contains(doc.WorkTypes, "manuscript") ||
+		slices.Contains(doc.Medium, "manuscript") ||
+		slices.Contains(doc.Format, "manuscript") ||
+		slices.Contains(doc.WorkTypes, "collection") {
 		formValue = "GenericRequestManuscript"
 	}
 

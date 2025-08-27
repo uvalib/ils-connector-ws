@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -223,7 +224,7 @@ func (svc *serviceContext) validateCourseReserves(c *gin.Context) {
 			if err != nil {
 				log.Printf("ERROR: unable to get solr doc for %s: %s", respRec.ID, err.Error())
 			} else {
-				if (solrDoc.Pool[0] == "video" && listContains(solrDoc.Location, "Internet materials")) || listContains(solrDoc.Source, "Avalon") {
+				if (solrDoc.Pool[0] == "video" && slices.Contains(solrDoc.Location, "Internet materials")) || slices.Contains(solrDoc.Source, "Avalon") {
 					log.Printf("INFO: per solr document, %s is a video", respRec.ID)
 					respRec.IsVideo = true
 					respRec.Reserve = true

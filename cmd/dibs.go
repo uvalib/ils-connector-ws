@@ -100,7 +100,6 @@ type dibsCheckoutInfo struct {
 }
 
 const dibsLocationKey = "DIBS"
-const dibsItemTypeKey = "DIBS"
 const dibsCustomInfoKey = "DIBS-INFO"
 
 // IN DIBS X032746483

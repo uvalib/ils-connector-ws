@@ -415,14 +415,3 @@ func loadDataFile(filename string) []string {
 	}
 	return strings.Split(string(bytes), "\n")
 }
-
-func listContains(list []string, tgt string) bool {
-	found := false
-	for _, val := range list {
-		if val == tgt {
-			found = true
-			break
-		}
-	}
-	return found
-}
