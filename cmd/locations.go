@@ -124,34 +124,21 @@ func (svc *serviceContext) getSirsiReserveLocations() {
 }
 
 func (lc *locationContext) find(key string) *locationRec {
-	var match *locationRec
-	for _, loc := range lc.Records {
-		if loc.Key == key {
-			match = &loc
-			break
-		}
+	matchIdx := slices.IndexFunc(lc.Records, func(loc locationRec) bool {
+		return loc.Key == strings.TrimSpace(strings.ToUpper(key))
+	})
+	if matchIdx > -1 {
+		return &lc.Records[matchIdx]
 	}
-	return match
+	return nil
 }
 
 func (lc *locationContext) isCourseReserve(key string) bool {
-	match := false
-	for _, loc := range lc.ReserveLocations {
-		if loc == strings.TrimSpace(strings.ToUpper(key)) {
-			match = true
-		}
-	}
-	return match
+	return slices.Contains(lc.ReserveLocations, strings.TrimSpace(strings.ToUpper(key)))
 }
 
 func (lc *locationContext) isOnShelf(key string) bool {
-	match := false
-	for _, loc := range lc.OnShelf {
-		if loc == strings.TrimSpace(strings.ToUpper(key)) {
-			match = true
-		}
-	}
-	return match
+	return slices.Contains(lc.OnShelf, strings.TrimSpace(strings.ToUpper(key)))
 }
 
 func (lc *locationContext) isScannable(key string) bool {

@@ -37,11 +37,11 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 	scanItemOpts := make([]holdableItem, 0)
 	noScans := false
 	var atoItem *availItem
+
+	// check user profile and home location to see if scanning should be an option for this user
 	v4Claims, _ := getVirgoClaims(c)
 	ucaseProfile := strings.ToUpper(v4Claims.Profile)
 	noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER", "UNDERGRAD"}
-	noScanHomeLocations := []string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}
-
 	if slices.Contains(noScanProfiles, ucaseProfile) || v4Claims.HomeLibrary == "HEALTHSCI" {
 		noScans = true
 		log.Printf("INFO: user %s with profile [%s] and home library [%s] is not able to request scans",
@@ -67,7 +67,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 
 		// First check to see if an item can be scanned since some non-circulating items are eligible for scanning
 		if item.IsVideo == false && noScans == false && svc.canScan(item) {
-			if slices.Contains(noScanHomeLocations, item.HomeLocationID) {
+			if slices.Contains([]string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}, item.HomeLocationID) {
 				log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
 				noScans = true
 				scanItemOpts = slices.Delete(scanItemOpts, 0, len(scanItemOpts))
@@ -293,13 +293,9 @@ func createAeonURL(doc *solrDocument) string {
 }
 
 func holdableExists(tgtItem holdableItem, volume string, holdableItems []holdableItem) bool {
-	exist := false
-	for _, hi := range holdableItems {
-		if strings.EqualFold(hi.CallNumber, tgtItem.CallNumber) {
-			exist = true
-			break
-		}
-	}
+	exist := slices.ContainsFunc(holdableItems, func(hi holdableItem) bool {
+		return strings.EqualFold(hi.CallNumber, tgtItem.CallNumber)
+	})
 	if exist == false {
 		// NOTES: even if call is unique, the item may be considered the same if it does not
 		// have any volume info. Ex: u5841451 is a video with 2 unique callnumns:

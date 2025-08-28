@@ -70,7 +70,7 @@ func (svc *serviceContext) refreshLibraries() {
 	for _, sl := range libResp {
 		lib := libraryRec{ID: sl.Fields.PolicyNumber,
 			Key:         sl.Key,
-			Description: sl.Fields.Description,
+			Description: strings.TrimSpace(sl.Fields.Description),
 		}
 		lib.OnShelf = svc.Libraries.isOnShelf(sl.Key)
 		lib.Scannable = svc.Libraries.isScannable(sl.Key)
@@ -82,21 +82,21 @@ func (svc *serviceContext) refreshLibraries() {
 }
 
 func (lc *libraryContext) find(key string) *libraryRec {
-	var match *libraryRec
-	for _, lib := range lc.Records {
-		if strings.TrimSpace(strings.ToUpper(lib.Key)) == strings.TrimSpace(strings.ToUpper(key)) {
-			match = &lib
-			break
-		}
+	matchIdx := slices.IndexFunc(lc.Records, func(lib libraryRec) bool {
+		return lib.Key == strings.TrimSpace(strings.ToUpper(key))
+	})
+	if matchIdx > -1 {
+		return &lc.Records[matchIdx]
 	}
-	return match
+	return nil
 }
 
 func (lc *libraryContext) lookupID(name string) string {
-	for _, lib := range lc.Records {
-		if strings.TrimSpace(lib.Description) == strings.TrimSpace(name) {
-			return lib.Key
-		}
+	matchIdx := slices.IndexFunc(lc.Records, func(lib libraryRec) bool {
+		return lib.Description == strings.TrimSpace(name)
+	})
+	if matchIdx > -1 {
+		return lc.Records[matchIdx].Key
 	}
 	return ""
 }
