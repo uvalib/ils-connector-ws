@@ -21,20 +21,31 @@ type holdableItem struct {
 	SCNotes    string `json:"sc_notes,omitempty"` // only set based on solr doc for aeon items
 }
 
-type requestOption struct {
-	Type             string         `json:"type"`
-	SignInRequired   bool           `json:"sign_in_required"`
-	StreamingReserve bool           `json:"streaming_reserve"`
-	ItemOptions      []holdableItem `json:"item_options"`
-	CreateURL        string         `json:"create_url"`
+type requestOptions struct {
+	Items   []holdableItem            `json:"items"`
+	Options map[string]*requestOption `json:"options"`
 }
 
-func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string, items []availItem, marc sirsiBibData) []requestOption {
+type requestOption struct {
+	Type             string   `json:"type"`
+	SignInRequired   bool     `json:"sign_in_required"`
+	StreamingReserve bool     `json:"streaming_reserve"`
+	ItemBarcodes     []string `json:"barcodes"`
+	CreateURL        string   `json:"create_url"`
+}
+
+func createRequestOptions() requestOptions {
+	out := requestOptions{Items: make([]holdableItem, 0), Options: make(map[string]*requestOption)}
+	out.Options["hold"] = &requestOption{Type: "hold", SignInRequired: true, ItemBarcodes: make([]string, 0)}
+	out.Options["videoReserve"] = &requestOption{Type: "videoReserve", StreamingReserve: false, SignInRequired: true, ItemBarcodes: make([]string, 0)}
+	out.Options["scan"] = &requestOption{Type: "scan", SignInRequired: true, ItemBarcodes: make([]string, 0)}
+	out.Options["aeon"] = &requestOption{Type: "aeon", SignInRequired: false, ItemBarcodes: make([]string, 0)}
+	return out
+}
+
+func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string, items []availItem, marc sirsiBibData) *requestOptions {
 	log.Printf("INFO: generate request options for %s with %d items", titleID, len(items))
-	out := make([]requestOption, 0)
-	holdableItems := make([]holdableItem, 0)
-	videoItemOpts := make([]holdableItem, 0)
-	scanItemOpts := make([]holdableItem, 0)
+	out := createRequestOptions()
 	noScans := false
 	var atoItem *availItem
 
@@ -70,9 +81,10 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			if slices.Contains([]string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}, item.HomeLocationID) {
 				log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
 				noScans = true
-				scanItemOpts = slices.Delete(scanItemOpts, 0, len(scanItemOpts))
+				delete(out.Options, "scan")
 			} else {
-				scanItemOpts = append(scanItemOpts, holdableItem)
+				out.Items = append(out.Items, holdableItem)
+				out.Options["scan"].ItemBarcodes = append(out.Options["scan"].ItemBarcodes, holdableItem.Barcode)
 			}
 		}
 
@@ -82,34 +94,12 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			continue
 		}
 
-		if holdableExists(holdableItem, item.Volume, holdableItems) == false {
-			holdableItems = append(holdableItems, holdableItem)
+		if holdableExists(holdableItem, item.Volume, out.Items) == false {
+			out.Options["hold"].ItemBarcodes = append(out.Options["hold"].ItemBarcodes, holdableItem.Barcode)
 			if item.IsVideo {
-				videoItemOpts = append(videoItemOpts, holdableItem)
+				out.Options["videoReserve"].ItemBarcodes = append(out.Options["videoReserve"].ItemBarcodes, holdableItem.Barcode)
 			}
 		}
-	}
-	log.Printf("INFO: %d holdable items found", len(holdableItems))
-
-	if len(holdableItems) > 0 {
-		log.Printf("INFO: add hold options for %s", titleID)
-		out = append(out, requestOption{Type: "hold", SignInRequired: true,
-			ItemOptions: holdableItems,
-		})
-	}
-
-	if len(videoItemOpts) > 0 {
-		log.Printf("INFO: add %d video reserve options for %s", len(videoItemOpts), titleID)
-		out = append(out, requestOption{Type: "videoReserve", SignInRequired: true,
-			ItemOptions: videoItemOpts,
-		})
-	}
-
-	if len(scanItemOpts) > 0 {
-		log.Printf("INFO: add %d scan options for %s", len(scanItemOpts), titleID)
-		out = append(out, requestOption{Type: "scan", SignInRequired: true,
-			ItemOptions: scanItemOpts,
-		})
 	}
 
 	if atoItem != nil {
@@ -121,22 +111,21 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		_, err := svc.sendRequest("pda-ws", svc.HTTPClient, req)
 		if err != nil {
 			if err.StatusCode == 404 {
-				out = append(out, requestOption{Type: "pda", SignInRequired: true,
-					ItemOptions: make([]holdableItem, 0),
-					CreateURL:   svc.generatePDACreateURL(titleID, atoItem.Barcode, marc),
-				})
+				out.Options["pda"] = &requestOption{Type: "pda",
+					SignInRequired: true,
+					ItemBarcodes:   make([]string, 0),
+					CreateURL:      svc.generatePDACreateURL(titleID, atoItem.Barcode, marc),
+				}
 			} else {
 				log.Printf("ERROR: pda check failed %d - %s", err.StatusCode, err.Message)
 			}
 		} else {
 			// success here means the item has been orderd, but sirsi not yet updated
-			out = append(out, requestOption{Type: "pda", SignInRequired: true,
-				ItemOptions: make([]holdableItem, 0),
-			})
+			out.Options["pda"] = &requestOption{Type: "pda", SignInRequired: true, ItemBarcodes: make([]string, 0)}
 		}
 	}
 
-	return out
+	return &out
 }
 
 func (svc *serviceContext) addStreamingVideoOption(solrDoc *solrDocument, avail *availabilityResponse) {
@@ -144,30 +133,18 @@ func (svc *serviceContext) addStreamingVideoOption(solrDoc *solrDocument, avail 
 		slices.Contains(solrDoc.Source, "Avalon")) {
 
 		log.Printf("Adding streaming video reserve option")
-		option := requestOption{
-			Type:             "videoReserve",
-			SignInRequired:   true,
-			StreamingReserve: true,
-			ItemOptions:      make([]holdableItem, 0),
-		}
-		avail.RequestOptions = append(avail.RequestOptions, option)
+		avail.RequestOptions.Options["streamingVideoReserve"] = &requestOption{Type: "videoReserve", StreamingReserve: true, SignInRequired: true, ItemBarcodes: make([]string, 0)}
 	}
 }
 
 func (svc *serviceContext) updateHSLScanOptions(solrDoc *solrDocument, avail *availabilityResponse) {
 	log.Printf("INFO: update scan options for hsl user")
-
-	avail.RequestOptions = slices.DeleteFunc(avail.RequestOptions, func(opt requestOption) bool {
-		return opt.Type == "scan"
-	})
-
-	hsScan := requestOption{
+	delete(avail.RequestOptions.Options, "scan")
+	avail.RequestOptions.Options["directlink"] = &requestOption{
 		Type:           "directLink",
 		SignInRequired: false,
 		CreateURL:      openURLQuery(svc.HSILLiadURL, solrDoc),
-		ItemOptions:    make([]holdableItem, 0),
-	}
-	avail.RequestOptions = append(avail.RequestOptions, hsScan)
+		ItemBarcodes:   make([]string, 0)}
 }
 
 func (svc *serviceContext) addAeonRequestOptions(result *availabilityResponse, solrDoc *solrDocument, availItems []availItem) {
@@ -178,22 +155,17 @@ func (svc *serviceContext) addAeonRequestOptions(result *availabilityResponse, s
 		return
 	}
 
-	aeonOption := requestOption{
+	result.RequestOptions.Options["aeon"] = &requestOption{
 		Type:           "aeon",
 		SignInRequired: false,
 		CreateURL:      createAeonURL(solrDoc),
-		ItemOptions:    createAeonItemOptions(solrDoc, availItems),
+		ItemBarcodes:   make([]string, 0),
 	}
-	result.RequestOptions = append(result.RequestOptions, aeonOption)
-}
 
-func createAeonItemOptions(solrDoc *solrDocument, availItems []availItem) []holdableItem {
-	options := []holdableItem{}
 	for _, item := range availItems {
 		if item.LibraryID != "SPEC-COLL" {
 			continue
 		}
-
 		notes := ""
 		if len(item.SCLocation) > 0 {
 			notes = item.SCLocation
@@ -215,11 +187,9 @@ func createAeonItemOptions(solrDoc *solrDocument, availItems []availItem) []hold
 		if len(notes) > 700 {
 			notes = notes[:700]
 		}
-
-		options = append(options, item.toHoldableItem(notes))
+		result.RequestOptions.Items = append(result.RequestOptions.Items, item.toHoldableItem(notes))
+		result.RequestOptions.Options["aeon"].ItemBarcodes = append(result.RequestOptions.Options["aeon"].ItemBarcodes, item.Barcode)
 	}
-
-	return options
 }
 
 func createAeonURL(doc *solrDocument) string {

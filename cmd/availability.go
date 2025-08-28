@@ -154,7 +154,7 @@ type boundWithRec struct {
 type availabilityResponse struct {
 	TitleID        string          `json:"title_id"`
 	Libraries      []*libraryItems `json:"libraries"`
-	RequestOptions []requestOption `json:"request_options"`
+	RequestOptions *requestOptions `json:"request_options"`
 	BoundWith      []boundWithRec  `json:"bound_with"`
 }
 
@@ -177,10 +177,9 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	catKey := c.Param("cat_key")
 
 	availResp := availabilityResponse{
-		TitleID:        catKey,
-		Libraries:      make([]*libraryItems, 0),
-		BoundWith:      make([]boundWithRec, 0),
-		RequestOptions: make([]requestOption, 0),
+		TitleID:   catKey,
+		Libraries: make([]*libraryItems, 0),
+		BoundWith: make([]boundWithRec, 0),
 	}
 
 	items := make([]availItem, 0)
