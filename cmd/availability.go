@@ -237,6 +237,15 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		}
 	}
 
+	// purge any options that have no associated barcodes
+	// NOTE: videoReserve with StreamingReserve = true will have no barcodes. Don't delete that
+	for _, optType := range []string{"aeon", "hold", "scan", "videoReserve"} {
+		if len(availResp.RequestOptions.Options[optType].ItemBarcodes) == 0 &&
+			availResp.RequestOptions.Options[optType].StreamingReserve == false {
+			delete(availResp.RequestOptions.Options, optType)
+		}
+	}
+
 	c.JSON(http.StatusOK, availResp)
 }
 

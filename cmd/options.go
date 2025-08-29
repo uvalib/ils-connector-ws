@@ -118,13 +118,6 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		}
 	}
 
-	// purge any options that have no associated barcodes
-	for _, optType := range []string{"aeon", "hold", "scan", "videoReserve"} {
-		if len(out.Options[optType].ItemBarcodes) == 0 {
-			delete(out.Options, optType)
-		}
-	}
-
 	if atoItem != nil {
 		log.Printf("INFO: add available to order option")
 		url := fmt.Sprintf("%s/check/%s", svc.PDAURL, titleID)
@@ -156,7 +149,7 @@ func (svc *serviceContext) addStreamingVideoOption(solrDoc *solrDocument, avail 
 		slices.Contains(solrDoc.Source, "Avalon")) {
 
 		log.Printf("Adding streaming video reserve option")
-		avail.RequestOptions.Options["streamingVideoReserve"] = &requestOption{Type: "videoReserve", StreamingReserve: true, SignInRequired: true, ItemBarcodes: make([]string, 0)}
+		avail.RequestOptions.Options["videoReserve"] = &requestOption{Type: "videoReserve", StreamingReserve: true, SignInRequired: true, ItemBarcodes: make([]string, 0)}
 	}
 }
 
