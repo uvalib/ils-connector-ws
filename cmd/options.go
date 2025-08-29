@@ -41,7 +41,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 	// check user profile and home location to see if scanning should be an option for this user
 	v4Claims, _ := getVirgoClaims(c)
 	ucaseProfile := strings.ToUpper(v4Claims.Profile)
-	noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER", "UNDERGRAD"}
+	noScanProfiles := []string{"VABORROWER", "OTHERVAFAC", "ALUMNI", "RESEARCHER"}
 	if slices.Contains(noScanProfiles, ucaseProfile) || v4Claims.HomeLibrary == "HEALTHSCI" {
 		noScans = true
 		log.Printf("INFO: user %s with profile [%s] and home library [%s] is not able to request scans",
@@ -66,13 +66,21 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		}
 
 		// First check to see if an item can be scanned since some non-circulating items are eligible for scanning
-		if item.IsVideo == false && noScans == false && svc.canScan(item) {
+		if item.IsVideo == false && noScans == false && item.LibraryID != "SPEC-COLL" {
 			if slices.Contains([]string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}, item.HomeLocationID) {
 				log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
 				noScans = true
 				scanItemOpts = slices.Delete(scanItemOpts, 0, len(scanItemOpts))
 			} else {
-				scanItemOpts = append(scanItemOpts, holdableItem)
+				if ucaseProfile == "UNDERGRAD" && item.HomeLocationID != "BY-REQUEST" {
+					// Per Daniel Stewart, undergraduate users can make scan requests for items located in a closed stack (BY-REQUEST).
+					// Previous logic blocked all scan requests for undergraduate users
+					log.Printf("INFO: undergraduate user %s cannot make scan requests for items in %s", v4Claims.UserID, item.HomeLocationID)
+				} else {
+					if holdableExists(holdableItem, item.Volume, scanItemOpts) == false {
+						scanItemOpts = append(scanItemOpts, holdableItem)
+					}
+				}
 			}
 		}
 
