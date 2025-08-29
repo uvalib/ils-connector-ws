@@ -13,7 +13,6 @@ type locationContext struct {
 	ReserveLocations []string
 	NonCirculating   []string
 	OnShelf          []string
-	NoScan           []string
 	RefreshAt        time.Time
 }
 
@@ -43,7 +42,6 @@ type locationRec struct {
 	Shadowed    bool   `json:"shadowed"`
 	OnShelf     bool   `json:"on_shelf"`
 	Circulating bool   `json:"circulating"`
-	Scannable   bool   `json:"scannable"`
 }
 
 func (svc *serviceContext) refreshLocations() {
@@ -54,11 +52,6 @@ func (svc *serviceContext) refreshLocations() {
 	if len(svc.Locations.OnShelf) == 0 {
 		log.Printf("INFO: load on shelf location data")
 		svc.Locations.OnShelf = loadDataFile("./data/onshelf-loc.txt")
-	}
-	if len(svc.Locations.NoScan) == 0 {
-		log.Printf("INFO: load no scan location data")
-		svc.Locations.NoScan = loadDataFile("./data/noscan-loc.txt")
-		log.Printf("INFO: NO SCAN LOCS: %v", svc.Locations.NoScan)
 	}
 
 	svc.Locations.RefreshAt = time.Now().Add(24 * time.Hour)
@@ -91,7 +84,6 @@ func (svc *serviceContext) getSirsiLocations() {
 		loc.Key = sl.Key
 		loc.Description = sl.Fields.Description
 		loc.OnShelf = svc.Locations.isOnShelf(sl.Key)
-		loc.Scannable = svc.Locations.isScannable(sl.Key)
 		loc.Circulating = !svc.Locations.isNonCirculating(sl.Key)
 		loc.Online = svc.Locations.isOnline(sl.Key)
 		loc.Shadowed = sl.Fields.Shadowed
@@ -139,10 +131,6 @@ func (lc *locationContext) isCourseReserve(key string) bool {
 
 func (lc *locationContext) isOnShelf(key string) bool {
 	return slices.Contains(lc.OnShelf, strings.TrimSpace(strings.ToUpper(key)))
-}
-
-func (lc *locationContext) isScannable(key string) bool {
-	return slices.Contains(lc.NoScan, strings.TrimSpace(strings.ToUpper(key))) == false
 }
 
 func (lc *locationContext) isNonCirculating(key string) bool {

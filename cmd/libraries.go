@@ -12,7 +12,6 @@ type libraryContext struct {
 	Records        []libraryRec
 	NonCirculating []string
 	OnShelf        []string
-	NoScan         []string
 	RefreshAt      time.Time
 }
 
@@ -30,7 +29,6 @@ type libraryRec struct {
 	Description string `json:"description"`
 	OnShelf     bool   `json:"on_shelf"`
 	Circulating bool   `json:"circulating"`
-	Scannable   bool   `json:"scannable"`
 }
 
 func (svc *serviceContext) refreshLibraries() {
@@ -44,11 +42,6 @@ func (svc *serviceContext) refreshLibraries() {
 	if len(svc.Libraries.OnShelf) == 0 {
 		log.Printf("INFO: load on shelf library data")
 		svc.Libraries.OnShelf = loadDataFile("./data/onshelf-lib.txt")
-	}
-	if len(svc.Libraries.NoScan) == 0 {
-		log.Printf("INFO: load no scan library data")
-		svc.Libraries.NoScan = loadDataFile("./data/noscan-lib.txt")
-		log.Printf("INFO: NO SCAN LIBS: %v", svc.Libraries.NoScan)
 	}
 
 	url := "/policy/library/simpleQuery?key=*&includeFields=key,policyNumber,description"
@@ -73,7 +66,6 @@ func (svc *serviceContext) refreshLibraries() {
 			Description: strings.TrimSpace(sl.Fields.Description),
 		}
 		lib.OnShelf = svc.Libraries.isOnShelf(sl.Key)
-		lib.Scannable = svc.Libraries.isScannable(sl.Key)
 		lib.Circulating = !svc.Libraries.isNonCirculating(sl.Key)
 		svc.Libraries.Records = append(svc.Libraries.Records, lib)
 	}
@@ -119,10 +111,6 @@ func (lc *libraryContext) lookupPDALibrary(pdaLib string) string {
 
 func (lc *libraryContext) isNonCirculating(key string) bool {
 	return slices.Contains(lc.NonCirculating, strings.TrimSpace(strings.ToUpper(key)))
-}
-
-func (lc *libraryContext) isScannable(key string) bool {
-	return slices.Contains(lc.NoScan, strings.TrimSpace(strings.ToUpper(key))) == false
 }
 
 func (lc *libraryContext) isOnShelf(key string) bool {
