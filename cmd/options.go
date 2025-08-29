@@ -77,6 +77,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		}
 
 		// First check to see if an item can be scanned since some non-circulating items are eligible for scanning
+		itemJustAdded := false
 		if item.IsVideo == false && noScans == false && item.LibraryID != "SPEC-COLL" {
 			if slices.Contains([]string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}, item.HomeLocationID) {
 				log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
@@ -89,6 +90,8 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 					log.Printf("INFO: undergraduate user %s cannot make scan requests for items in %s", v4Claims.UserID, item.HomeLocationID)
 				} else {
 					if holdableExists(holdableItem, item.Volume, out.Items) == false {
+						itemJustAdded = true
+						out.Items = append(out.Items, holdableItem)
 						out.Options["scan"].ItemBarcodes = append(out.Options["scan"].ItemBarcodes, holdableItem.Barcode)
 					}
 				}
@@ -101,11 +104,24 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			continue
 		}
 
-		if holdableExists(holdableItem, item.Volume, out.Items) == false {
+		// If the scan logic above added the item to the items list, itemJustAdded will be true
+		// which allows holds and videos to be added.
+		if holdableExists(holdableItem, item.Volume, out.Items) == false || itemJustAdded {
+			// Only add the item if scan did not already add it
+			if itemJustAdded == false {
+				out.Items = append(out.Items, holdableItem)
+			}
 			out.Options["hold"].ItemBarcodes = append(out.Options["hold"].ItemBarcodes, holdableItem.Barcode)
 			if item.IsVideo {
 				out.Options["videoReserve"].ItemBarcodes = append(out.Options["videoReserve"].ItemBarcodes, holdableItem.Barcode)
 			}
+		}
+	}
+
+	// purge any options that have no associated barcodes
+	for _, optType := range []string{"aeon", "hold", "scan", "videoReserve"} {
+		if len(out.Options[optType].ItemBarcodes) == 0 {
+			delete(out.Options, optType)
 		}
 	}
 
