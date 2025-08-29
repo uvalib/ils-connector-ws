@@ -27,19 +27,18 @@ type requestOptions struct {
 }
 
 type requestOption struct {
-	Type             string   `json:"type"`
 	SignInRequired   bool     `json:"sign_in_required"`
 	StreamingReserve bool     `json:"streaming_reserve"`
 	ItemBarcodes     []string `json:"barcodes"`
-	CreateURL        string   `json:"create_url"`
+	CreateURL        string   `json:"create_url,omitempty"`
 }
 
 func createRequestOptions() requestOptions {
 	out := requestOptions{Items: make([]holdableItem, 0), Options: make(map[string]*requestOption)}
-	out.Options["hold"] = &requestOption{Type: "hold", SignInRequired: true, ItemBarcodes: make([]string, 0)}
-	out.Options["videoReserve"] = &requestOption{Type: "videoReserve", StreamingReserve: false, SignInRequired: true, ItemBarcodes: make([]string, 0)}
-	out.Options["scan"] = &requestOption{Type: "scan", SignInRequired: true, ItemBarcodes: make([]string, 0)}
-	out.Options["aeon"] = &requestOption{Type: "aeon", SignInRequired: false, ItemBarcodes: make([]string, 0)}
+	out.Options["hold"] = &requestOption{SignInRequired: true, ItemBarcodes: make([]string, 0)}
+	out.Options["videoReserve"] = &requestOption{StreamingReserve: false, SignInRequired: true, ItemBarcodes: make([]string, 0)}
+	out.Options["scan"] = &requestOption{SignInRequired: true, ItemBarcodes: make([]string, 0)}
+	out.Options["aeon"] = &requestOption{SignInRequired: false, ItemBarcodes: make([]string, 0)}
 	return out
 }
 
@@ -127,7 +126,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		_, err := svc.sendRequest("pda-ws", svc.HTTPClient, req)
 		if err != nil {
 			if err.StatusCode == 404 {
-				out.Options["pda"] = &requestOption{Type: "pda",
+				out.Options["pda"] = &requestOption{
 					SignInRequired: true,
 					ItemBarcodes:   make([]string, 0),
 					CreateURL:      svc.generatePDACreateURL(titleID, atoItem.Barcode, marc),
@@ -137,7 +136,7 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			}
 		} else {
 			// success here means the item has been orderd, but sirsi not yet updated
-			out.Options["pda"] = &requestOption{Type: "pda", SignInRequired: true, ItemBarcodes: make([]string, 0)}
+			out.Options["pda"] = &requestOption{SignInRequired: true, ItemBarcodes: make([]string, 0)}
 		}
 	}
 
@@ -149,7 +148,7 @@ func (svc *serviceContext) addStreamingVideoOption(solrDoc *solrDocument, avail 
 		slices.Contains(solrDoc.Source, "Avalon")) {
 
 		log.Printf("Adding streaming video reserve option")
-		avail.RequestOptions.Options["videoReserve"] = &requestOption{Type: "videoReserve", StreamingReserve: true, SignInRequired: true, ItemBarcodes: make([]string, 0)}
+		avail.RequestOptions.Options["videoReserve"] = &requestOption{StreamingReserve: true, SignInRequired: true, ItemBarcodes: make([]string, 0)}
 	}
 }
 
@@ -157,7 +156,6 @@ func (svc *serviceContext) updateHSLScanOptions(solrDoc *solrDocument, avail *av
 	log.Printf("INFO: update scan options for hsl user")
 	delete(avail.RequestOptions.Options, "scan")
 	avail.RequestOptions.Options["directlink"] = &requestOption{
-		Type:           "directLink",
 		SignInRequired: false,
 		CreateURL:      openURLQuery(svc.HSILLiadURL, solrDoc),
 		ItemBarcodes:   make([]string, 0)}
@@ -172,7 +170,6 @@ func (svc *serviceContext) addAeonRequestOptions(result *availabilityResponse, s
 	}
 
 	result.RequestOptions.Options["aeon"] = &requestOption{
-		Type:           "aeon",
 		SignInRequired: false,
 		CreateURL:      createAeonURL(solrDoc),
 		ItemBarcodes:   make([]string, 0),
