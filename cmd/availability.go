@@ -177,9 +177,10 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	catKey := c.Param("cat_key")
 
 	availResp := availabilityResponse{
-		TitleID:   catKey,
-		Libraries: make([]*libraryItems, 0),
-		BoundWith: make([]boundWithRec, 0),
+		TitleID:        catKey,
+		Libraries:      make([]*libraryItems, 0),
+		BoundWith:      make([]boundWithRec, 0),
+		RequestOptions: createRequestOptions(),
 	}
 
 	items := make([]availItem, 0)
@@ -206,8 +207,8 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 
 			availResp.TitleID = bibResp.Key
 			svc.addLibraryItems(&availResp, items)
-			availResp.BoundWith = svc.processBoundWithItems(bibResp)
-			availResp.RequestOptions = svc.generateRequestOptions(c, availResp.TitleID, items, bibResp.Fields.MarcRecord)
+			svc.addBoundWithItems(&availResp, bibResp)
+			svc.addSirsiRequestOptions(c, &availResp, items, bibResp.Fields.MarcRecord)
 		}
 	}
 
@@ -398,9 +399,9 @@ func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requ
 	return &bibResp, nil
 }
 
-func (svc *serviceContext) processBoundWithItems(bibResp *sirsiBibResponse) []boundWithRec {
+func (svc *serviceContext) addBoundWithItems(resp *availabilityResponse, bibResp *sirsiBibResponse) {
 	// sample: sources/uva_library/items/u3315175
-	log.Printf("INFO: process bound with for %s", bibResp.Key)
+	log.Printf("INFO: add bound with for %s", bibResp.Key)
 	out := make([]boundWithRec, 0)
 	if len(bibResp.Fields.BoundWithList) > 0 {
 		bwParent := extractBoundWithRec(bibResp.Fields.BoundWithList[0].Fields.Parent)
@@ -412,8 +413,8 @@ func (svc *serviceContext) processBoundWithItems(bibResp *sirsiBibResponse) []bo
 			out = append(out, extractBoundWithRec(child))
 		}
 	}
-	log.Printf("INFO: process bound with for %s has completed", bibResp.Key)
-	return out
+	log.Printf("INFO: add bound with for %s has completed", bibResp.Key)
+	resp.BoundWith = out
 }
 
 func (svc *serviceContext) generatePDACreateURL(titleID, barcode string, marc sirsiBibData) string {

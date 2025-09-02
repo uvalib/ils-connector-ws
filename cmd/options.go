@@ -33,18 +33,17 @@ type requestOption struct {
 	CreateURL        string   `json:"create_url,omitempty"`
 }
 
-func createRequestOptions() requestOptions {
+func createRequestOptions() *requestOptions {
 	out := requestOptions{Items: make([]holdableItem, 0), Options: make(map[string]*requestOption)}
 	out.Options["hold"] = &requestOption{SignInRequired: true, ItemBarcodes: make([]string, 0)}
 	out.Options["videoReserve"] = &requestOption{StreamingReserve: false, SignInRequired: true, ItemBarcodes: make([]string, 0)}
 	out.Options["scan"] = &requestOption{SignInRequired: true, ItemBarcodes: make([]string, 0)}
 	out.Options["aeon"] = &requestOption{SignInRequired: false, ItemBarcodes: make([]string, 0)}
-	return out
+	return &out
 }
 
-func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string, items []availItem, marc sirsiBibData) *requestOptions {
-	log.Printf("INFO: generate request options for %s with %d items", titleID, len(items))
-	out := createRequestOptions()
+func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabilityResponse, items []availItem, marc sirsiBibData) {
+	log.Printf("INFO: generate request options for %s with %d items", resp.TitleID, len(items))
 	noScans := false
 	var atoItem *availItem
 
@@ -81,17 +80,17 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			if slices.Contains([]string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}, item.HomeLocationID) {
 				log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
 				noScans = true
-				delete(out.Options, "scan")
+				delete(resp.RequestOptions.Options, "scan")
 			} else {
 				if ucaseProfile == "UNDERGRAD" && item.HomeLocationID != "BY-REQUEST" {
 					// Per Daniel Stewart, undergraduate users can make scan requests for items located in a closed stack (BY-REQUEST).
 					// Previous logic blocked all scan requests for undergraduate users
 					log.Printf("INFO: undergraduate user %s cannot make scan requests for items in %s", v4Claims.UserID, item.HomeLocationID)
 				} else {
-					if holdableExists(holdableItem, item.Volume, out.Items) == false {
+					if holdableExists(holdableItem, item.Volume, resp.RequestOptions.Items) == false {
 						itemJustAdded = true
-						out.Items = append(out.Items, holdableItem)
-						out.Options["scan"].ItemBarcodes = append(out.Options["scan"].ItemBarcodes, holdableItem.Barcode)
+						resp.RequestOptions.Items = append(resp.RequestOptions.Items, holdableItem)
+						resp.RequestOptions.Options["scan"].ItemBarcodes = append(resp.RequestOptions.Options["scan"].ItemBarcodes, holdableItem.Barcode)
 					}
 				}
 			}
@@ -105,42 +104,40 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 
 		// If the scan logic above added the item to the items list, itemJustAdded will be true
 		// which allows holds and videos to be added.
-		if holdableExists(holdableItem, item.Volume, out.Items) == false || itemJustAdded {
+		if holdableExists(holdableItem, item.Volume, resp.RequestOptions.Items) == false || itemJustAdded {
 			// Only add the item if scan did not already add it
 			if itemJustAdded == false {
-				out.Items = append(out.Items, holdableItem)
+				resp.RequestOptions.Items = append(resp.RequestOptions.Items, holdableItem)
 			}
-			out.Options["hold"].ItemBarcodes = append(out.Options["hold"].ItemBarcodes, holdableItem.Barcode)
+			resp.RequestOptions.Options["hold"].ItemBarcodes = append(resp.RequestOptions.Options["hold"].ItemBarcodes, holdableItem.Barcode)
 			if item.IsVideo {
-				out.Options["videoReserve"].ItemBarcodes = append(out.Options["videoReserve"].ItemBarcodes, holdableItem.Barcode)
+				resp.RequestOptions.Options["videoReserve"].ItemBarcodes = append(resp.RequestOptions.Options["videoReserve"].ItemBarcodes, holdableItem.Barcode)
 			}
 		}
 	}
 
 	if atoItem != nil {
 		log.Printf("INFO: add available to order option")
-		url := fmt.Sprintf("%s/check/%s", svc.PDAURL, titleID)
+		url := fmt.Sprintf("%s/check/%s", svc.PDAURL, resp.TitleID)
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("User-Agent", "Golang_ILS_Connector")
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.GetString("jwt")))
 		_, err := svc.sendRequest("pda-ws", svc.HTTPClient, req)
 		if err != nil {
 			if err.StatusCode == 404 {
-				out.Options["pda"] = &requestOption{
+				resp.RequestOptions.Options["pda"] = &requestOption{
 					SignInRequired: true,
 					ItemBarcodes:   make([]string, 0),
-					CreateURL:      svc.generatePDACreateURL(titleID, atoItem.Barcode, marc),
+					CreateURL:      svc.generatePDACreateURL(resp.TitleID, atoItem.Barcode, marc),
 				}
 			} else {
 				log.Printf("ERROR: pda check failed %d - %s", err.StatusCode, err.Message)
 			}
 		} else {
 			// success here means the item has been orderd, but sirsi not yet updated
-			out.Options["pda"] = &requestOption{SignInRequired: true, ItemBarcodes: make([]string, 0)}
+			resp.RequestOptions.Options["pda"] = &requestOption{SignInRequired: true, ItemBarcodes: make([]string, 0)}
 		}
 	}
-
-	return &out
 }
 
 func (svc *serviceContext) addStreamingVideoOption(solrDoc *solrDocument, avail *availabilityResponse) {
