@@ -140,7 +140,9 @@ func (ai *availItem) toHoldableItem(notes string) holdableItem {
 		Location:   loc,
 		Library:    ai.Library,
 		SCNotes:    notes,
-		Notice:     ai.Notice}
+		Notice:     ai.Notice,
+		Requests:   make([]string, 0),
+	}
 }
 
 type boundWithRec struct {
@@ -154,7 +156,7 @@ type boundWithRec struct {
 type availabilityResponse struct {
 	TitleID        string          `json:"title_id"`
 	Libraries      []*libraryItems `json:"libraries"`
-	RequestOptions *requestOptions `json:"request_options"`
+	RequestOptions *requestOptions `json:"request_options,omitempty"`
 	BoundWith      []boundWithRec  `json:"bound_with"`
 }
 
@@ -202,10 +204,10 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		}
 
 		if notFound == false {
+			availResp.TitleID = bibResp.Key
+
 			// parse sirsi data into an easier to manage format
 			items = svc.parseItemsFromSirsi(bibResp)
-
-			availResp.TitleID = bibResp.Key
 			svc.addLibraryItems(&availResp, items)
 			svc.addBoundWithItems(&availResp, bibResp)
 			svc.addSirsiRequestOptions(c, &availResp, items, bibResp.Fields.MarcRecord)
@@ -220,6 +222,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		log.Printf("INFO: update reserve options based on solr doc")
 		scItems := svc.extractSpecialCollectionsItems(&availResp, solrDoc)
 		if len(scItems) > 0 {
+			// every aeon item is uniquely able to be requested and will have its own request URL
 			svc.addLibraryItems(&availResp, scItems)
 			items = append(items, scItems...)
 		}
@@ -230,7 +233,9 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 			log.Printf("ERROR: unable to get claims: %s", err.Error())
 		} else {
 			if claims.HomeLibrary == "HEALTHSCI" {
-				svc.updateHSLScanOptions(solrDoc, &availResp)
+				// scans will be blocked for HEALTHSCI users in addSirsiRequestOptions.
+				// Add the directLink for thoose users here
+				svc.addHSLScanOption(solrDoc, &availResp)
 			}
 			if claims.CanPlaceReserve {
 				svc.addStreamingVideoOption(solrDoc, &availResp)
@@ -238,13 +243,9 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		}
 	}
 
-	// purge any options that have no associated barcodes
-	// NOTE: videoReserve with StreamingReserve = true will have no barcodes. Don't delete that
-	for _, optType := range []string{"aeon", "hold", "scan", "videoReserve"} {
-		if len(availResp.RequestOptions.Options[optType].ItemBarcodes) == 0 &&
-			availResp.RequestOptions.Options[optType].StreamingReserve == false {
-			delete(availResp.RequestOptions.Options, optType)
-		}
+	if availResp.RequestOptions.hasOptions() == false {
+		log.Printf("INFO: %s has no request options", catKey)
+		availResp.RequestOptions = nil
 	}
 
 	c.JSON(http.StatusOK, availResp)
