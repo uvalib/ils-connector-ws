@@ -88,7 +88,6 @@ type serviceContext struct {
 	Libraries          libraryContext
 	Secrets            secretsConfig
 	VirgoURL           string
-	PDAURL             string
 	UserInfoURL        string
 	HTTPClient         *http.Client
 	SlowHTTPClient     *http.Client
@@ -121,7 +120,6 @@ func intializeService(version string, cfg *serviceConfig) (*serviceContext, erro
 		CourseReserveEmail: cfg.CourseReserveEmail,
 		LawReserveEmail:    cfg.LawReserveEmail,
 		Secrets:            cfg.Secrets,
-		PDAURL:             cfg.PDAURL,
 		VirgoURL:           cfg.VirgoURL,
 		UserInfoURL:        cfg.UserInfoURL,
 	}

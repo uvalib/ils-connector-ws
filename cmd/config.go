@@ -39,7 +39,6 @@ type serviceConfig struct {
 	Sirsi              sirsiConfig
 	Solr               solrConfig
 	VirgoURL           string
-	PDAURL             string
 	UserInfoURL        string
 	HSILLiadURL        string
 	CourseReserveEmail string
@@ -69,7 +68,6 @@ func loadConfiguration() *serviceConfig {
 
 	// external services
 	flag.StringVar(&cfg.VirgoURL, "virgo", "", "URL to Virgo")
-	flag.StringVar(&cfg.PDAURL, "pda", "", "URL to PDA")
 	flag.StringVar(&cfg.UserInfoURL, "userinfo", "", "URL to user info service")
 
 	// email / smtp
@@ -111,9 +109,6 @@ func loadConfiguration() *serviceConfig {
 	if cfg.VirgoURL == "" {
 		log.Fatal("virgo param is required")
 	}
-	if cfg.PDAURL == "" {
-		log.Fatal("pda param is required")
-	}
 	if cfg.UserInfoURL == "" {
 		log.Fatal("userinfo param is required")
 	}
@@ -147,7 +142,6 @@ func loadConfiguration() *serviceConfig {
 	log.Printf("[CONFIG] lawemail      = [%s]", cfg.LawReserveEmail)
 	log.Printf("[CONFIG] hsilliad      = [%s]", cfg.HSILLiadURL)
 	log.Printf("[CONFIG] virgo         = [%s]", cfg.VirgoURL)
-	log.Printf("[CONFIG] pda           = [%s]", cfg.PDAURL)
 	log.Printf("[CONFIG] userinfo      = [%s]", cfg.UserInfoURL)
 
 	return &cfg

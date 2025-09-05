@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -27,11 +26,10 @@ type requestOptions struct {
 	Items            []*holdableItem `json:"items"`
 	StreamingReserve bool            `json:"streamingVideoReserve,omitempty"`
 	HSAScanURL       string          `json:"hsaScanURL,omitempty"`
-	PDAURL           string          `json:"pdaURL,omitempty"`
 }
 
 func (ro *requestOptions) hasOptions() bool {
-	if len(ro.Items) == 0 && ro.StreamingReserve == false && ro.HSAScanURL == "" && ro.PDAURL == "" {
+	if len(ro.Items) == 0 && ro.StreamingReserve == false && ro.HSAScanURL == "" {
 		return false
 	}
 	return true
@@ -42,10 +40,9 @@ func createRequestOptions() *requestOptions {
 	return &out
 }
 
-func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabilityResponse, items []availItem, marc sirsiBibData) {
+func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabilityResponse, items []availItem) {
 	log.Printf("INFO: generate request options for %s with %d items", resp.TitleID, len(items))
 	noScans := false
-	var atoItem *availItem
 
 	// check user profile and home location to see if scanning should be an option for this user
 	v4Claims, _ := getVirgoClaims(c)
@@ -58,11 +55,6 @@ func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabi
 	}
 
 	for _, item := range items {
-		// track available to order items for later use
-		if item.CurrentLocation == "Available to Order" && atoItem == nil {
-			atoItem = &item
-		}
-
 		// item must be available to be held/scanned
 		if item.Unavailable {
 			continue
@@ -112,26 +104,6 @@ func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabi
 			if item.IsVideo {
 				holdableItem.Requests = append(holdableItem.Requests, "videoReserve")
 			}
-		}
-	}
-
-	if atoItem != nil {
-		log.Printf("INFO: add available to order option")
-		url := fmt.Sprintf("%s/check/%s", svc.PDAURL, resp.TitleID)
-		req, _ := http.NewRequest("GET", url, nil)
-		req.Header.Set("User-Agent", "Golang_ILS_Connector")
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.GetString("jwt")))
-		_, err := svc.sendRequest("pda-ws", svc.HTTPClient, req)
-		if err != nil {
-			if err.StatusCode == 404 {
-				resp.RequestOptions.PDAURL = svc.generatePDACreateURL(resp.TitleID, atoItem.Barcode, marc)
-			} else {
-				log.Printf("ERROR: pda check failed %d - %s", err.StatusCode, err.Message)
-			}
-		} else {
-			// success here means the item has been orderd, but sirsi not yet updated
-			log.Printf("INFO: %s is available for pda but has already been orderd", atoItem.Barcode)
-			resp.RequestOptions.PDAURL = "ORDERED"
 		}
 	}
 }

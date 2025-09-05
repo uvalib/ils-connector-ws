@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
@@ -22,25 +21,10 @@ type sirsiBoundWithRec struct {
 	} `json:"fields"`
 }
 
-type marcTag struct {
-	Tag       string `json:"tag"`
-	Subfields []struct {
-		Code string `json:"code"`
-		Data string `json:"data"`
-	} `json:"subfields"`
-	Inds string `json:"inds,omitempty"`
-}
-
-type sirsiBibData struct {
-	Leader string    `json:"leader"`
-	Fields []marcTag `json:"fields"`
-}
-
 type sirsiBibResponse struct {
 	Key    string `json:"key"`
 	Fields struct {
-		MarcRecord sirsiBibData `json:"bib"`
-		CallList   []struct {
+		CallList []struct {
 			Key    string `json:"key"`
 			Fields struct {
 				Bib            sirsiKey `json:"bib"`
@@ -210,7 +194,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 			items = svc.parseItemsFromSirsi(bibResp)
 			svc.addLibraryItems(&availResp, items)
 			svc.addBoundWithItems(&availResp, bibResp)
-			svc.addSirsiRequestOptions(c, &availResp, items, bibResp.Fields.MarcRecord)
+			svc.addSirsiRequestOptions(c, &availResp, items)
 		}
 	}
 
@@ -381,7 +365,7 @@ func openURLQuery(baseURL string, doc *solrDocument) string {
 
 func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requestError) {
 	cleanKey := cleanCatKey(catKey)
-	fields := "boundWithList{*},bib,callList{dispCallNumber,volumetric,shadowed,library{description},"
+	fields := "boundWithList{*},callList{dispCallNumber,volumetric,shadowed,library{description},"
 	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
 	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
@@ -416,46 +400,6 @@ func (svc *serviceContext) addBoundWithItems(resp *availabilityResponse, bibResp
 	}
 	log.Printf("INFO: add bound with for %s has completed", bibResp.Key)
 	resp.BoundWith = out
-}
-
-func (svc *serviceContext) generatePDACreateURL(titleID, barcode string, marc sirsiBibData) string {
-	pdaURL := fmt.Sprintf("%s/orders?barcode=%s&catalog_key=%s", svc.PDAURL, barcode, titleID)
-	pdaURL += fmt.Sprintf("&fund_code=%s", getMarcValue(marc, "985", "first"))
-	padHoldLib := getMarcValue(marc, "949", "h")
-	pdaURL += fmt.Sprintf("&hold_library=%s", svc.Libraries.lookupPDALibrary(padHoldLib))
-	pdaURL += fmt.Sprintf("&isbn=%s", getMarcValue(marc, "911", "a"))
-	pdaURL += fmt.Sprintf("&loan_type=%s", getMarcValue(marc, "985", "last"))
-	title := getMarcValue(marc, "245", "all")
-	pdaURL += fmt.Sprintf("&title=%s", url.QueryEscape(title))
-	return pdaURL
-}
-
-func getMarcValue(marc sirsiBibData, tag, code string) string {
-	out := ""
-	for _, mf := range marc.Fields {
-		if mf.Tag == tag {
-			switch code {
-			case "first":
-				out = mf.Subfields[0].Data
-			case "last":
-				out = mf.Subfields[len(mf.Subfields)-1].Data
-			case "all":
-				var vals []string
-				for _, sf := range mf.Subfields {
-					vals = append(vals, sf.Data)
-				}
-				out = strings.Join(vals, " ")
-			default:
-				for _, sf := range mf.Subfields {
-					if sf.Code == code {
-						out = sf.Data
-					}
-				}
-			}
-			break
-		}
-	}
-	return out
 }
 
 func extractBoundWithRec(sirsiRec sirsiBoundWithRec) boundWithRec {
