@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,30 +12,37 @@ import (
 )
 
 type holdableItem struct {
-	Barcode    string `json:"barcode"`
-	CallNumber string `json:"call_number"`
-	Library    string `json:"library"`
-	Location   string `json:"location"`
-	Notice     string `json:"notice"`
-	SCNotes    string `json:"sc_notes,omitempty"` // only set based on solr doc for aeon items
+	Barcode    string   `json:"barcode"`
+	CallNumber string   `json:"callNumber"`
+	Library    string   `json:"library"`
+	Location   string   `json:"location"`
+	Notice     string   `json:"notice,omitempty"`
+	SCNotes    string   `json:"scNotes,omitempty"`  // only set based on solr doc for aeon items
+	Requests   []string `json:"requests,omitempty"` // list of all types of options for requesting this item
+	AeonURL    string   `json:"aeonURL,omitempty"`  // each aeon item is unique and will have its own holdableItem with a single request (aeon) and aeonURL
 }
 
-type requestOption struct {
-	Type             string         `json:"type"`
-	SignInRequired   bool           `json:"sign_in_required"`
-	StreamingReserve bool           `json:"streaming_reserve"`
-	ItemOptions      []holdableItem `json:"item_options"`
-	CreateURL        string         `json:"create_url"`
+type requestOptions struct {
+	Items            []*holdableItem `json:"items"`
+	StreamingReserve bool            `json:"streamingVideoReserve,omitempty"`
+	HSAScanURL       string          `json:"hsaScanURL,omitempty"`
 }
 
-func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string, items []availItem, marc sirsiBibData) []requestOption {
-	log.Printf("INFO: generate request options for %s with %d items", titleID, len(items))
-	out := make([]requestOption, 0)
-	holdableItems := make([]holdableItem, 0)
-	videoItemOpts := make([]holdableItem, 0)
-	scanItemOpts := make([]holdableItem, 0)
+func (ro *requestOptions) hasOptions() bool {
+	if len(ro.Items) == 0 && ro.StreamingReserve == false && ro.HSAScanURL == "" {
+		return false
+	}
+	return true
+}
+
+func createRequestOptions() *requestOptions {
+	out := requestOptions{Items: make([]*holdableItem, 0)}
+	return &out
+}
+
+func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabilityResponse, items []availItem) {
+	log.Printf("INFO: generate request options for %s with %d items", resp.TitleID, len(items))
 	noScans := false
-	var atoItem *availItem
 
 	// check user profile and home location to see if scanning should be an option for this user
 	v4Claims, _ := getVirgoClaims(c)
@@ -49,11 +55,6 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 	}
 
 	for _, item := range items {
-		// track available to order items for later use
-		if item.CurrentLocation == "Available to Order" && atoItem == nil {
-			atoItem = &item
-		}
-
 		// item must be available to be held/scanned
 		if item.Unavailable {
 			continue
@@ -66,19 +67,21 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 		}
 
 		// First check to see if an item can be scanned since some non-circulating items are eligible for scanning
+		itemJustAdded := false
 		if item.IsVideo == false && noScans == false && item.LibraryID != "SPEC-COLL" {
 			if slices.Contains([]string{"HISTCOL", "RARESHL", "RAREOVS", "RAREVLT"}, item.HomeLocationID) {
 				log.Printf("INFO: %s with home location %s blocks this item from being scanned", item.Barcode, item.HomeLocationID)
 				noScans = true
-				scanItemOpts = slices.Delete(scanItemOpts, 0, len(scanItemOpts))
 			} else {
 				if ucaseProfile == "UNDERGRAD" && item.HomeLocationID != "BY-REQUEST" {
 					// Per Daniel Stewart, undergraduate users can make scan requests for items located in a closed stack (BY-REQUEST).
 					// Previous logic blocked all scan requests for undergraduate users
 					log.Printf("INFO: undergraduate user %s cannot make scan requests for items in %s", v4Claims.UserID, item.HomeLocationID)
 				} else {
-					if holdableExists(holdableItem, item.Volume, scanItemOpts) == false {
-						scanItemOpts = append(scanItemOpts, holdableItem)
+					if holdableExists(holdableItem, item.Volume, resp.RequestOptions.Items) == false {
+						itemJustAdded = true
+						holdableItem.Requests = append(holdableItem.Requests, "scan")
+						resp.RequestOptions.Items = append(resp.RequestOptions.Items, &holdableItem)
 					}
 				}
 			}
@@ -90,92 +93,31 @@ func (svc *serviceContext) generateRequestOptions(c *gin.Context, titleID string
 			continue
 		}
 
-		if holdableExists(holdableItem, item.Volume, holdableItems) == false {
-			holdableItems = append(holdableItems, holdableItem)
+		// If the scan logic above added the item to the items list, itemJustAdded will be true
+		// which allows holds and videos to be added.
+		if holdableExists(holdableItem, item.Volume, resp.RequestOptions.Items) == false || itemJustAdded {
+			if itemJustAdded == false {
+				// Only add the item if scan did not already add it
+				resp.RequestOptions.Items = append(resp.RequestOptions.Items, &holdableItem)
+			}
+			holdableItem.Requests = append(holdableItem.Requests, "hold")
 			if item.IsVideo {
-				videoItemOpts = append(videoItemOpts, holdableItem)
+				holdableItem.Requests = append(holdableItem.Requests, "videoReserve")
 			}
 		}
 	}
-	log.Printf("INFO: %d holdable items found", len(holdableItems))
-
-	if len(holdableItems) > 0 {
-		log.Printf("INFO: add hold options for %s", titleID)
-		out = append(out, requestOption{Type: "hold", SignInRequired: true,
-			ItemOptions: holdableItems,
-		})
-	}
-
-	if len(videoItemOpts) > 0 {
-		log.Printf("INFO: add %d video reserve options for %s", len(videoItemOpts), titleID)
-		out = append(out, requestOption{Type: "videoReserve", SignInRequired: true,
-			ItemOptions: videoItemOpts,
-		})
-	}
-
-	if len(scanItemOpts) > 0 {
-		log.Printf("INFO: add %d scan options for %s", len(scanItemOpts), titleID)
-		out = append(out, requestOption{Type: "scan", SignInRequired: true,
-			ItemOptions: scanItemOpts,
-		})
-	}
-
-	if atoItem != nil {
-		log.Printf("INFO: add available to order option")
-		url := fmt.Sprintf("%s/check/%s", svc.PDAURL, titleID)
-		req, _ := http.NewRequest("GET", url, nil)
-		req.Header.Set("User-Agent", "Golang_ILS_Connector")
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.GetString("jwt")))
-		_, err := svc.sendRequest("pda-ws", svc.HTTPClient, req)
-		if err != nil {
-			if err.StatusCode == 404 {
-				out = append(out, requestOption{Type: "pda", SignInRequired: true,
-					ItemOptions: make([]holdableItem, 0),
-					CreateURL:   svc.generatePDACreateURL(titleID, atoItem.Barcode, marc),
-				})
-			} else {
-				log.Printf("ERROR: pda check failed %d - %s", err.StatusCode, err.Message)
-			}
-		} else {
-			// success here means the item has been orderd, but sirsi not yet updated
-			out = append(out, requestOption{Type: "pda", SignInRequired: true,
-				ItemOptions: make([]holdableItem, 0),
-			})
-		}
-	}
-
-	return out
 }
 
 func (svc *serviceContext) addStreamingVideoOption(solrDoc *solrDocument, avail *availabilityResponse) {
-	if solrDoc.Pool[0] == "video" && (slices.Contains(solrDoc.Location, "Internet materials") ||
-		slices.Contains(solrDoc.Source, "Avalon")) {
-
-		log.Printf("Adding streaming video reserve option")
-		option := requestOption{
-			Type:             "videoReserve",
-			SignInRequired:   true,
-			StreamingReserve: true,
-			ItemOptions:      make([]holdableItem, 0),
-		}
-		avail.RequestOptions = append(avail.RequestOptions, option)
+	if solrDoc.Pool[0] == "video" && (slices.Contains(solrDoc.Location, "Internet materials") || slices.Contains(solrDoc.Source, "Avalon")) {
+		log.Printf("INFO: add streaming video reserve option")
+		avail.RequestOptions.StreamingReserve = true
 	}
 }
 
-func (svc *serviceContext) updateHSLScanOptions(solrDoc *solrDocument, avail *availabilityResponse) {
-	log.Printf("INFO: update scan options for hsl user")
-
-	avail.RequestOptions = slices.DeleteFunc(avail.RequestOptions, func(opt requestOption) bool {
-		return opt.Type == "scan"
-	})
-
-	hsScan := requestOption{
-		Type:           "directLink",
-		SignInRequired: false,
-		CreateURL:      openURLQuery(svc.HSILLiadURL, solrDoc),
-		ItemOptions:    make([]holdableItem, 0),
-	}
-	avail.RequestOptions = append(avail.RequestOptions, hsScan)
+func (svc *serviceContext) addHSLScanOption(solrDoc *solrDocument, avail *availabilityResponse) {
+	log.Printf("INFO: add scan option for hsl user")
+	avail.RequestOptions.HSAScanURL = openURLQuery(svc.HSILLiadURL, solrDoc)
 }
 
 func (svc *serviceContext) addAeonRequestOptions(result *availabilityResponse, solrDoc *solrDocument, availItems []availItem) {
@@ -186,22 +128,10 @@ func (svc *serviceContext) addAeonRequestOptions(result *availabilityResponse, s
 		return
 	}
 
-	aeonOption := requestOption{
-		Type:           "aeon",
-		SignInRequired: false,
-		CreateURL:      createAeonURL(solrDoc),
-		ItemOptions:    createAeonItemOptions(solrDoc, availItems),
-	}
-	result.RequestOptions = append(result.RequestOptions, aeonOption)
-}
-
-func createAeonItemOptions(solrDoc *solrDocument, availItems []availItem) []holdableItem {
-	options := []holdableItem{}
 	for _, item := range availItems {
 		if item.LibraryID != "SPEC-COLL" {
 			continue
 		}
-
 		notes := ""
 		if len(item.SCLocation) > 0 {
 			notes = item.SCLocation
@@ -224,35 +154,40 @@ func createAeonItemOptions(solrDoc *solrDocument, availItems []availItem) []hold
 			notes = notes[:700]
 		}
 
-		options = append(options, item.toHoldableItem(notes))
+		// Each aeon item is unique and will have its own aron request URL
+		aeonItem := item.toHoldableItem(notes)
+		aeonItem.Requests = append(aeonItem.Requests, "aeon")
+		aeonURL, urlErr := createAeonURL(aeonItem, solrDoc)
+		if urlErr != nil {
+			log.Printf("ERROR: unable to generate aeon url for barcode %s", aeonItem.Barcode)
+		} else {
+			aeonItem.AeonURL = aeonURL
+		}
+		result.RequestOptions.Items = append(result.RequestOptions.Items, &aeonItem)
 	}
-
-	return options
 }
 
-func createAeonURL(doc *solrDocument) string {
+func createAeonURL(item holdableItem, doc *solrDocument) (string, error) {
 	type aeonRequest struct {
 		Action      int    `url:"Action"`
 		Form        int    `url:"Form"`
 		Value       string `url:"Value"` // either GenericRequestManuscript or GenericRequestMonograph
 		DocID       string `url:"ReferenceNumber"`
-		Title       string `url:"ItemTitle" default:"(NONE)"`
+		Title       string `url:"ItemTitle"`
 		Author      string `url:"ItemAuthor"`
 		Date        string `url:"ItemDate"`
 		ISxN        string `url:"ItemISxN"`
-		CallNumber  string `url:"CallNumber" default:"(NONE)"`
+		CallNumber  string `url:"CallNumber"`
 		Barcode     string `url:"ItemNumber"`
 		Place       string `url:"ItemPlace"`
 		Publisher   string `url:"ItemPublisher"`
 		Edition     string `url:"ItemEdition"`
 		Issue       string `url:"ItemIssuesue"`
-		Volume      string `url:"ItemVolume"` // unless manuscript
+		Volume      string `url:"ItemVolume"`
 		Copy        string `url:"ItemInfo2"`
 		Location    string `url:"Location"`
 		Description string `url:"ItemInfo1"`
 		Notes       string `url:"Notes"`
-		Tags        string `url:"ResearcherTags,omitempty"`
-		UserNote    string `url:"SpecialRequest"`
 	}
 
 	// Decide monograph or manuscript
@@ -282,9 +217,13 @@ func createAeonURL(doc *solrDocument) string {
 		Publisher:   strings.Join(doc.PublisherName, "; "),
 		Edition:     doc.Edition,
 		Issue:       doc.Issue,
-		Volume:      doc.Volume,
+		Volume:      item.CallNumber, // TODO this seems wrong, bit it is the way the system originally worked. doc.Volume is available and was set here, but overridden in client
 		Copy:        doc.Copy,
 		Description: desc,
+		CallNumber:  item.CallNumber,
+		Barcode:     item.Barcode,
+		Notes:       item.SCNotes,
+		Location:    item.Location,
 	}
 	if len(doc.Author) == 1 {
 		req.Author = doc.Author[0]
@@ -292,16 +231,16 @@ func createAeonURL(doc *solrDocument) string {
 		req.Author = fmt.Sprintf("%s; ...", doc.Author[0])
 	}
 
-	// Notes, Bacode, CallNumber, UserNotes need to be added by client for the specific item!
-
-	query, _ := query.Values(req)
-
+	query, err := query.Values(req)
+	if err != nil {
+		return "", err
+	}
 	url := fmt.Sprintf("https://virginia.aeon.atlas-sys.com/logon?%s", query.Encode())
-	return url
+	return url, nil
 }
 
-func holdableExists(tgtItem holdableItem, volume string, holdableItems []holdableItem) bool {
-	exist := slices.ContainsFunc(holdableItems, func(hi holdableItem) bool {
+func holdableExists(tgtItem holdableItem, volume string, holdableItems []*holdableItem) bool {
+	exist := slices.ContainsFunc(holdableItems, func(hi *holdableItem) bool {
 		return strings.EqualFold(hi.CallNumber, tgtItem.CallNumber)
 	})
 	if exist == false {

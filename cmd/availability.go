@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
@@ -22,25 +21,10 @@ type sirsiBoundWithRec struct {
 	} `json:"fields"`
 }
 
-type marcTag struct {
-	Tag       string `json:"tag"`
-	Subfields []struct {
-		Code string `json:"code"`
-		Data string `json:"data"`
-	} `json:"subfields"`
-	Inds string `json:"inds,omitempty"`
-}
-
-type sirsiBibData struct {
-	Leader string    `json:"leader"`
-	Fields []marcTag `json:"fields"`
-}
-
 type sirsiBibResponse struct {
 	Key    string `json:"key"`
 	Fields struct {
-		MarcRecord sirsiBibData `json:"bib"`
-		CallList   []struct {
+		CallList []struct {
 			Key    string `json:"key"`
 			Fields struct {
 				Bib            sirsiKey `json:"bib"`
@@ -140,7 +124,9 @@ func (ai *availItem) toHoldableItem(notes string) holdableItem {
 		Location:   loc,
 		Library:    ai.Library,
 		SCNotes:    notes,
-		Notice:     ai.Notice}
+		Notice:     ai.Notice,
+		Requests:   make([]string, 0),
+	}
 }
 
 type boundWithRec struct {
@@ -154,7 +140,7 @@ type boundWithRec struct {
 type availabilityResponse struct {
 	TitleID        string          `json:"title_id"`
 	Libraries      []*libraryItems `json:"libraries"`
-	RequestOptions []requestOption `json:"request_options"`
+	RequestOptions *requestOptions `json:"request_options,omitempty"`
 	BoundWith      []boundWithRec  `json:"bound_with"`
 }
 
@@ -180,7 +166,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		TitleID:        catKey,
 		Libraries:      make([]*libraryItems, 0),
 		BoundWith:      make([]boundWithRec, 0),
-		RequestOptions: make([]requestOption, 0),
+		RequestOptions: createRequestOptions(),
 	}
 
 	items := make([]availItem, 0)
@@ -202,13 +188,13 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		}
 
 		if notFound == false {
+			availResp.TitleID = bibResp.Key
+
 			// parse sirsi data into an easier to manage format
 			items = svc.parseItemsFromSirsi(bibResp)
-
-			availResp.TitleID = bibResp.Key
 			svc.addLibraryItems(&availResp, items)
-			availResp.BoundWith = svc.processBoundWithItems(bibResp)
-			availResp.RequestOptions = svc.generateRequestOptions(c, availResp.TitleID, items, bibResp.Fields.MarcRecord)
+			svc.addBoundWithItems(&availResp, bibResp)
+			svc.addSirsiRequestOptions(c, &availResp, items)
 		}
 	}
 
@@ -220,6 +206,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 		log.Printf("INFO: update reserve options based on solr doc")
 		scItems := svc.extractSpecialCollectionsItems(&availResp, solrDoc)
 		if len(scItems) > 0 {
+			// every aeon item is uniquely able to be requested and will have its own request URL
 			svc.addLibraryItems(&availResp, scItems)
 			items = append(items, scItems...)
 		}
@@ -230,12 +217,19 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 			log.Printf("ERROR: unable to get claims: %s", err.Error())
 		} else {
 			if claims.HomeLibrary == "HEALTHSCI" {
-				svc.updateHSLScanOptions(solrDoc, &availResp)
+				// scans will be blocked for HEALTHSCI users in addSirsiRequestOptions.
+				// Add the directLink for thoose users here
+				svc.addHSLScanOption(solrDoc, &availResp)
 			}
 			if claims.CanPlaceReserve {
 				svc.addStreamingVideoOption(solrDoc, &availResp)
 			}
 		}
+	}
+
+	if availResp.RequestOptions.hasOptions() == false {
+		log.Printf("INFO: %s has no request options", catKey)
+		availResp.RequestOptions = nil
 	}
 
 	c.JSON(http.StatusOK, availResp)
@@ -371,7 +365,7 @@ func openURLQuery(baseURL string, doc *solrDocument) string {
 
 func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requestError) {
 	cleanKey := cleanCatKey(catKey)
-	fields := "boundWithList{*},bib,callList{dispCallNumber,volumetric,shadowed,library{description},"
+	fields := "boundWithList{*},callList{dispCallNumber,volumetric,shadowed,library{description},"
 	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
 	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)
@@ -390,9 +384,9 @@ func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requ
 	return &bibResp, nil
 }
 
-func (svc *serviceContext) processBoundWithItems(bibResp *sirsiBibResponse) []boundWithRec {
+func (svc *serviceContext) addBoundWithItems(resp *availabilityResponse, bibResp *sirsiBibResponse) {
 	// sample: sources/uva_library/items/u3315175
-	log.Printf("INFO: process bound with for %s", bibResp.Key)
+	log.Printf("INFO: add bound with for %s", bibResp.Key)
 	out := make([]boundWithRec, 0)
 	if len(bibResp.Fields.BoundWithList) > 0 {
 		bwParent := extractBoundWithRec(bibResp.Fields.BoundWithList[0].Fields.Parent)
@@ -404,48 +398,8 @@ func (svc *serviceContext) processBoundWithItems(bibResp *sirsiBibResponse) []bo
 			out = append(out, extractBoundWithRec(child))
 		}
 	}
-	log.Printf("INFO: process bound with for %s has completed", bibResp.Key)
-	return out
-}
-
-func (svc *serviceContext) generatePDACreateURL(titleID, barcode string, marc sirsiBibData) string {
-	pdaURL := fmt.Sprintf("%s/orders?barcode=%s&catalog_key=%s", svc.PDAURL, barcode, titleID)
-	pdaURL += fmt.Sprintf("&fund_code=%s", getMarcValue(marc, "985", "first"))
-	padHoldLib := getMarcValue(marc, "949", "h")
-	pdaURL += fmt.Sprintf("&hold_library=%s", svc.Libraries.lookupPDALibrary(padHoldLib))
-	pdaURL += fmt.Sprintf("&isbn=%s", getMarcValue(marc, "911", "a"))
-	pdaURL += fmt.Sprintf("&loan_type=%s", getMarcValue(marc, "985", "last"))
-	title := getMarcValue(marc, "245", "all")
-	pdaURL += fmt.Sprintf("&title=%s", url.QueryEscape(title))
-	return pdaURL
-}
-
-func getMarcValue(marc sirsiBibData, tag, code string) string {
-	out := ""
-	for _, mf := range marc.Fields {
-		if mf.Tag == tag {
-			switch code {
-			case "first":
-				out = mf.Subfields[0].Data
-			case "last":
-				out = mf.Subfields[len(mf.Subfields)-1].Data
-			case "all":
-				var vals []string
-				for _, sf := range mf.Subfields {
-					vals = append(vals, sf.Data)
-				}
-				out = strings.Join(vals, " ")
-			default:
-				for _, sf := range mf.Subfields {
-					if sf.Code == code {
-						out = sf.Data
-					}
-				}
-			}
-			break
-		}
-	}
-	return out
+	log.Printf("INFO: add bound with for %s has completed", bibResp.Key)
+	resp.BoundWith = out
 }
 
 func extractBoundWithRec(sirsiRec sirsiBoundWithRec) boundWithRec {

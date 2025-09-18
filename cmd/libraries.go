@@ -93,22 +93,6 @@ func (lc *libraryContext) lookupID(name string) string {
 	return ""
 }
 
-func (lc *libraryContext) lookupPDALibrary(pdaLib string) string {
-	pdaMap := map[string]string{
-		"SH-PPDA": "SHANNON",
-		"AL-PPDA": "ALD",
-		"AS-PPDA": "ASTRO",
-		"CH-PPDA": "CHEM",
-		"CL-PPDA": "CLEM",
-		"FA-PPDA": "FINE ARTS",
-		"MA-PPDA": "MATH",
-		"MU-PPDA": "MUSIC",
-		"PH-PPDA": "PHYS",
-		"SE-PPDA": "SCIENG",
-	}
-	return pdaMap[pdaLib]
-}
-
 func (lc *libraryContext) isNonCirculating(key string) bool {
 	return slices.Contains(lc.NonCirculating, strings.TrimSpace(strings.ToUpper(key)))
 }

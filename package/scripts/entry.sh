@@ -16,7 +16,6 @@ fi
 cd bin; ./ils-connector-ws \
   -userkey ${AUTH_SHARED_SECRET} \
   -jwtkey ${JWT_KEY} \
-  -pda ${PDA_BASE_URL} \
   -port ${SERVICE_PORT} \
   -sirsiclient ${SIRSI_CLIENT_ID} \
   -sirsilibrary ${SIRSI_LIBRARY} \
