@@ -40,6 +40,8 @@ func main() {
 	router.GET("/version", svc.getVersion)
 	router.GET("/healthcheck", svc.healthCheck)
 
+	router.POST("/reauthenticate", svc.virgoJWTMiddleware, svc.sirsiReauthenticate)
+
 	// availability
 	router.GET("/availability/list", svc.sirsiAuthMiddleware, svc.refreshDataMiddleware, svc.getAvailabilityList)
 	router.GET("/availability/:cat_key", svc.refreshDataMiddleware, svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.getAvailability)

@@ -163,6 +163,30 @@ func (svc *serviceContext) terminateSession() {
 	}
 }
 
+// curl -X POST http://localhost:8185/reauthenticate -H "Authorization: Bearer Ym9zY236Ym9zY28="
+func (svc *serviceContext) sirsiReauthenticate(c *gin.Context) {
+	claims, err := getVirgoClaims(c)
+	if err != nil {
+		log.Printf("ERROR: attempt to access reauthenticate with bad claims: %s", err.Error())
+		c.String(http.StatusForbidden, "access forbidden")
+		return
+	}
+	if claims.Role != v4jwt.Admin {
+		log.Printf("ERROR: non-admin user %s attmpted to force a sirsi reauthenticate", claims.UserID)
+		c.String(http.StatusForbidden, "access forbidden")
+		return
+	}
+
+	svc.terminateSession()
+	err = svc.sirsiLogin()
+	if err != nil {
+		log.Printf("ERROR: reauthenticate failed: %s", err.Error())
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.String(http.StatusOK, "session refreshed")
+}
+
 func (svc *serviceContext) sirsiLogin() error {
 	log.Printf("INFO: attempting sirsi login for %s", svc.SirsiConfig.User)
 	svc.SirsiSession.SessionToken = ""
@@ -304,6 +328,27 @@ func (svc *serviceContext) sendRequest(serviceName string, httpClient *http.Clie
 	respBytes, _ = io.ReadAll(rawResp.Body)
 	rawResp.Body.Close()
 	if rawResp.StatusCode != http.StatusOK && rawResp.StatusCode != http.StatusCreated {
+		if serviceName == "sirsi" && rawResp.StatusCode == http.StatusUnauthorized {
+			// if the sirsi API drops for any reason, the current session will be invalidated and
+			// all requests will return: 401: {"messageList":[{"code":"sessionTimedOut","message":"The session has timed out."}]}
+			// Detect this, reestablish the session and let this request fail. The client can retry.
+			// NOTE: dont care if the parse fails. If it does, sessionTimeout wont be detected and the call will fail as it would have normally
+			log.Printf("INFO: extract message list from failed sirsi response %s", respBytes)
+			var parsedErr sirsiError
+			json.Unmarshal(respBytes, &parsedErr)
+			if len(parsedErr.MessageList) == 1 && parsedErr.MessageList[0].Code == "sessionTimedOut" {
+				log.Printf("INFO: session timeout detected; re-establish session")
+				svc.terminateSession()
+				err := svc.sirsiLogin()
+				if err != nil {
+					// can't authenticate. abort with an internal server error
+					log.Printf("ERROR: unable to reestablish sirsi session: %s", err)
+					return nil, &requestError{StatusCode: http.StatusInternalServerError, Message: err.Error()}
+				}
+			}
+		}
+
+		log.Printf("INFO: return fail info %s %s - %d:%s", serviceName, request.URL.String(), rawResp.StatusCode, respBytes)
 		status := rawResp.StatusCode
 		errMsg := string(respBytes)
 		respBytes = nil
