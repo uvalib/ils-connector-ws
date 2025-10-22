@@ -193,10 +193,10 @@ func createAeonURL(item holdableItem, doc *solrDocument) (string, error) {
 	// Decide monograph or manuscript
 	formValue := "GenericRequestMonograph"
 
-	if slices.Contains(doc.WorkTypes, "manuscript") ||
-		slices.Contains(doc.Medium, "manuscript") ||
-		slices.Contains(doc.Format, "manuscript") ||
-		slices.Contains(doc.WorkTypes, "collection") {
+	if containsRegex(doc.WorkTypes, "manuscript") ||
+		containsRegex(doc.Medium, "manuscript") ||
+		containsRegex(doc.Format, "manuscript") ||
+		containsRegex(doc.WorkTypes, "collection") {
 		formValue = "GenericRequestManuscript"
 	}
 
@@ -237,6 +237,11 @@ func createAeonURL(item holdableItem, doc *solrDocument) (string, error) {
 	}
 	url := fmt.Sprintf("https://virginia.aeon.atlas-sys.com/logon?%s", query.Encode())
 	return url, nil
+}
+
+func containsRegex(arr []string, str string) bool {
+	matcher := regexp.MustCompile("(?i)" + str)
+	return slices.ContainsFunc(arr, matcher.MatchString)
 }
 
 func holdableExists(tgtItem holdableItem, volume string, holdableItems []*holdableItem) bool {
