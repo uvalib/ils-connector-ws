@@ -13,7 +13,7 @@ import (
 )
 
 // Version of the service
-const version = "1.7.0"
+const version = "1.8.0"
 
 func main() {
 	log.Printf("===> ILS Connector service staring up <===")
@@ -50,12 +50,6 @@ func main() {
 	router.POST("/course_reserves", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.refreshDataMiddleware, svc.createCourseReserves)
 	router.POST("/course_reserves/validate", svc.sirsiAuthMiddleware, svc.validateCourseReserves)
 	router.GET("/course_reserves/search", svc.sirsiAuthMiddleware, svc.searchCourseReserves)
-
-	// dibs management
-	router.PUT("/dibs/indibs/:barcode", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.setBarcodeInDiBS)
-	router.PUT("/dibs/nodibs/:barcode", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.setBarcodeNotInDiBS)
-	router.POST("/dibs/checkin", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.checkinDiBS)
-	router.POST("/dibs/checkout", svc.sirsiAuthMiddleware, svc.virgoJWTMiddleware, svc.checkoutDiBS)
 
 	// metadata rights update
 	router.POST("/metadata/:cat_key/update_rights", svc.sirsiAuthMiddleware, svc.updateMetadataRights)

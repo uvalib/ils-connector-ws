@@ -501,3 +501,63 @@ func (svc *serviceContext) fillHoldCheckout(tgt fillHoldInfo, sessionToken strin
 	log.Printf("INFO: fillhold checkout %s[%s] was successful", tgt.Barcode, tgt.Key)
 	return nil
 }
+
+// this will retry the given request and payload. each try will add overrides to SD-Prompt-Return
+func (svc *serviceContext) retrySirsiRequest(uri string, payload []byte, headers map[string]string, overrides []string, overridePosifix string) ([]byte, *requestError) {
+	log.Printf("INFO: retry sirsi request %s and apply override headers each attempt", uri)
+	attempt := 0
+	success := false
+	var lastErr *requestError
+	var lastResp []byte
+	headerOverrides := make([]string, 0)
+	for _, o := range overrides {
+		headerOverrides = append(headerOverrides, o)
+	}
+	url := fmt.Sprintf("%s/%s", svc.SirsiConfig.WebServicesURL, uri)
+	for attempt < 5 {
+		attempt++
+		sirsiReq, _ := http.NewRequest("POST", url, bytes.NewBuffer(payload))
+		svc.setSirsiHeaders(sirsiReq, "STAFF", svc.SirsiSession.SessionToken)
+		for hdr, val := range headers {
+			// add all standard headers passed; x-sirs-sessionToken, x-sirs-clientID, etc
+			sirsiReq.Header.Set(hdr, val)
+		}
+		for _, hdr := range headerOverrides {
+			// now add any override headers
+			log.Printf("INFO: add %s to SD-Prompt-Return", hdr)
+			sirsiReq.Header.Add("SD-Prompt-Return", hdr)
+		}
+
+		log.Printf("INFO: request attempt #%d with headers [%v]", attempt, sirsiReq.Header)
+		sirsiResp, sirsiErr := svc.sendRequest("sirsi", svc.HTTPClient, sirsiReq)
+		lastResp = sirsiResp
+		lastErr = sirsiErr
+		if sirsiErr != nil {
+			log.Printf("INFO: request failed: %s", sirsiErr.string())
+			var errInfo sirsiError
+			json.Unmarshal([]byte(sirsiErr.Message), &errInfo)
+			if errInfo.DataMap.PromptType != "" {
+				newHeader := errInfo.DataMap.PromptType
+				if overridePosifix != "" {
+					newHeader += fmt.Sprintf("/%s", overridePosifix)
+				}
+				log.Printf("INFO: add override %s", newHeader)
+				headerOverrides = append(headerOverrides, newHeader)
+			} else {
+				log.Printf("INFO: checkout failed with no override data; done")
+				break
+			}
+		} else {
+			log.Printf("INFO: %s succeeded", url)
+			success = true
+			break
+		}
+	}
+
+	if success == false {
+		log.Printf("INFO: %s failed after %d attempts: %s", uri, attempt, lastErr.string())
+		return lastResp, lastErr
+	}
+
+	return lastResp, nil
+}

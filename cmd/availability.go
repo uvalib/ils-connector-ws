@@ -101,7 +101,6 @@ func (ai *availItem) toLibraryItem() libraryItem {
 		Barcode:         ai.Barcode,
 		CallNumber:      cn,
 		CurrentLocation: ai.CurrentLocation,
-		DiBS:            (ai.HomeLocationID == "DIBS"),
 		Notice:          ai.Notice}
 }
 
@@ -148,7 +147,6 @@ type libraryItem struct {
 	Barcode         string `json:"barcode"`
 	CallNumber      string `json:"call_number"`
 	CurrentLocation string `json:"current_location"`
-	DiBS            bool   `json:"dibs"`
 	Notice          string `json:"notice"`
 }
 
