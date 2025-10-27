@@ -55,8 +55,11 @@ func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabi
 	}
 
 	for _, item := range items {
+		log.Printf("INFO: check options for item %s", item.Barcode)
+
 		// item must be available to be held/scanned
 		if item.Unavailable {
+			log.Printf("INFO: item %s is unavailable", item.Barcode)
 			continue
 		}
 
@@ -78,10 +81,13 @@ func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabi
 					// Previous logic blocked all scan requests for undergraduate users
 					log.Printf("INFO: undergraduate user %s cannot make scan requests for items in %s", v4Claims.UserID, item.HomeLocationID)
 				} else {
-					if holdableExists(holdableItem, item.Volume, resp.RequestOptions.Items) == false {
+					if holdableExists("scan", item, resp.RequestOptions.Items) == false {
 						itemJustAdded = true
 						holdableItem.Requests = append(holdableItem.Requests, "scan")
 						resp.RequestOptions.Items = append(resp.RequestOptions.Items, &holdableItem)
+						log.Printf("INFO: add scan option for %s", item.Barcode)
+					} else {
+						log.Printf("INFO: scan option already exists for %s", item.Barcode)
 					}
 				}
 			}
@@ -90,20 +96,25 @@ func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabi
 		// non circulating items are not holdable. This assumes (per original code)
 		// that all users can request onshelf items. NOTE: this blocks SPEC-COLL items from the holdable list
 		if svc.isNonCirculating(item) {
+			log.Printf("INFO: item %s is noncirculating", item.Barcode)
 			continue
 		}
 
 		// If the scan logic above added the item to the items list, itemJustAdded will be true
 		// which allows holds and videos to be added.
-		if holdableExists(holdableItem, item.Volume, resp.RequestOptions.Items) == false || itemJustAdded {
+		if holdableExists("hold", item, resp.RequestOptions.Items) == false || itemJustAdded {
 			if itemJustAdded == false {
 				// Only add the item if scan did not already add it
 				resp.RequestOptions.Items = append(resp.RequestOptions.Items, &holdableItem)
 			}
+			log.Printf("INFO: add hold option for %s", item.Barcode)
 			holdableItem.Requests = append(holdableItem.Requests, "hold")
 			if item.IsVideo {
+				log.Printf("INFO: add videoReserve option for %s", item.Barcode)
 				holdableItem.Requests = append(holdableItem.Requests, "videoReserve")
 			}
+		} else {
+			log.Printf("INFO: hold option already exists for %s", item.Barcode)
 		}
 	}
 }
@@ -244,16 +255,27 @@ func containsRegex(arr []string, str string) bool {
 	return slices.ContainsFunc(arr, matcher.MatchString)
 }
 
-func holdableExists(tgtItem holdableItem, volume string, holdableItems []*holdableItem) bool {
-	exist := slices.ContainsFunc(holdableItems, func(hi *holdableItem) bool {
-		return strings.EqualFold(hi.CallNumber, tgtItem.CallNumber)
-	})
-	if exist == false {
+func holdableExists(optionType string, tgtItem availItem, holdableItems []*holdableItem) bool {
+	callExist := false
+	optExist := false
+	for _, hi := range holdableItems {
+		if strings.EqualFold(hi.CallNumber, tgtItem.CallNumber) {
+			callExist = true
+		}
+		if slices.Contains(hi.Requests, optionType) {
+			optExist = true
+		}
+	}
+	if optExist == false {
+		return false
+	}
+
+	if callExist == false {
 		// NOTES: even if call is unique, the item may be considered the same if it does not
 		// have any volume info. Ex: u5841451 is a video with 2 unique callnumns:
 		// VIDEO .DVD19571 and KLAUS DVD #1224. Since neiter is a different volume they are considered
 		// the same item from a request persective. Only add the first instance of such items.
-		return volume == "" && len(holdableItems) > 0
+		return tgtItem.Volume == "" && len(holdableItems) > 0
 	}
-	return exist
+	return callExist
 }
