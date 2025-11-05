@@ -13,7 +13,7 @@ import (
 )
 
 // Version of the service
-const version = "1.8.0"
+const version = "1.9.0"
 
 func main() {
 	log.Printf("===> ILS Connector service staring up <===")

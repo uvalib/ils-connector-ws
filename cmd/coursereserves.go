@@ -117,7 +117,7 @@ type requestItem struct {
 	Pool             string             `json:"pool"`
 	IsVideo          bool               `json:"isVideo"`
 	CatalogKey       string             `json:"catalogKey"`
-	CallNumber       []string           `json:"callNumber"`
+	CallNumber       string             `json:"callNumber"`
 	Title            string             `json:"title"`
 	Author           string             `json:"author"`
 	Period           string             `json:"period"`
