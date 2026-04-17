@@ -24,6 +24,15 @@ type sirsiBoundWithRec struct {
 type sirsiBibResponse struct {
 	Key    string `json:"key"`
 	Fields struct {
+		Bib struct {
+			Fields []struct {
+				Tag       string `json:"tag"`
+				Subfields []struct {
+					Code string `json:"code"`
+					Data string `json:"data"`
+				} `json:"subfields"`
+			} `json:"fields"`
+		} `json:"bib"`
 		CallList []struct {
 			Key    string `json:"key"`
 			Fields struct {
@@ -88,6 +97,7 @@ type availItem struct {
 	Unavailable       bool
 	Notice            string
 	IsVideo           bool
+	IsMicroForm       bool
 	Volume            string
 	SCLocation        string
 }
@@ -236,6 +246,26 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []availItem {
 	log.Printf("INFO: process items for %s", bibResp.Key)
 	out := make([]availItem, 0)
+
+	// microform flag is set if tag 856 subfield u is set with a value like:
+	// "https://search.lib.virginia.edu/sources/uva_library/item/u"
+	isMicroForm := false
+	for _, field := range bibResp.Fields.Bib.Fields {
+		if field.Tag == "856" {
+			for _, subF := range field.Subfields {
+				if subF.Code == "u" {
+					if strings.Contains(subF.Data, "/sources/uva_library/items/u") {
+						isMicroForm = true
+						log.Printf("INFO: %s contains tag 856u with a value indicating it is a microform", bibResp.Key)
+						break
+					}
+				}
+			}
+		}
+		if isMicroForm {
+			break
+		}
+	}
 	for _, callRec := range bibResp.Fields.CallList {
 		if callRec.Fields.Shadowed {
 			log.Printf("INFO: callRec key %s is shadowed; not adding to availability list", callRec.Key)
@@ -252,7 +282,7 @@ func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []avai
 				continue
 			}
 
-			item := availItem{CallNumber: callRec.Fields.DispCallNumber}
+			item := availItem{CallNumber: callRec.Fields.DispCallNumber, IsMicroForm: isMicroForm}
 			for _, test := range callRec.Fields.ItemList {
 				// if any item has copy num > 1, there are multiple copies; store the number.
 				if test.Fields.CopyNumber > 1 {
@@ -363,7 +393,7 @@ func openURLQuery(baseURL string, doc *solrDocument) string {
 
 func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requestError) {
 	cleanKey := cleanCatKey(catKey)
-	fields := "boundWithList{*},callList{dispCallNumber,volumetric,shadowed,library{description},"
+	fields := "boundWithList{*},bib{*},callList{dispCallNumber,volumetric,shadowed,library{description},"
 	fields += "itemList{barcode,copyNumber,shadowed,itemType{key},homeLocation{key},currentLocation{key,description,shadowed}}}"
 	url := fmt.Sprintf("/catalog/bib/key/%s?includeFields=%s", cleanKey, fields)
 	sirsiRaw, sirsiErr := svc.sirsiGet(svc.SlowHTTPClient, url)

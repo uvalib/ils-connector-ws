@@ -26,6 +26,7 @@ type requestOptions struct {
 	Items            []*holdableItem `json:"items"`
 	StreamingReserve bool            `json:"streamingVideoReserve,omitempty"`
 	HSAScanURL       string          `json:"hsaScanURL,omitempty"`
+	MicroForm        bool            `json:"microForm,omitempty"`
 }
 
 func (ro *requestOptions) hasOptions() bool {
@@ -102,13 +103,18 @@ func (svc *serviceContext) addSirsiRequestOptions(c *gin.Context, resp *availabi
 
 		// If the scan logic above added the item to the items list, itemJustAdded will be true
 		// which allows holds and videos to be added.
-		if holdableExists("hold", item, resp.RequestOptions.Items) == false || itemJustAdded {
+		optionType := "hold"
+		if item.IsMicroForm {
+			log.Printf("INFO: add microForm option for %s", item.Barcode)
+			optionType = "microform"
+		}
+		if holdableExists(optionType, item, resp.RequestOptions.Items) == false || itemJustAdded {
 			if itemJustAdded == false {
 				// Only add the item if scan did not already add it
 				resp.RequestOptions.Items = append(resp.RequestOptions.Items, &holdableItem)
 			}
-			log.Printf("INFO: add hold option for %s", item.Barcode)
-			holdableItem.Requests = append(holdableItem.Requests, "hold")
+			log.Printf("INFO: add %s option for %s", optionType, item.Barcode)
+			holdableItem.Requests = append(holdableItem.Requests, optionType)
 			if item.IsVideo {
 				log.Printf("INFO: add videoReserve option for %s", item.Barcode)
 				holdableItem.Requests = append(holdableItem.Requests, "videoReserve")
