@@ -97,7 +97,7 @@ type availItem struct {
 	Unavailable       bool
 	Notice            string
 	IsVideo           bool
-	IsMicroForm       bool
+	MicroformURL      string
 	Volume            string
 	SCLocation        string
 }
@@ -249,20 +249,20 @@ func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []avai
 
 	// microform flag is set if tag 856 subfield u is set with a value like:
 	// "https://search.lib.virginia.edu/sources/uva_library/item/u"
-	isMicroForm := false
+	microformURL := ""
 	for _, field := range bibResp.Fields.Bib.Fields {
 		if field.Tag == "856" {
 			for _, subF := range field.Subfields {
 				if subF.Code == "u" {
 					if strings.Contains(subF.Data, "/sources/uva_library/items/u") {
-						isMicroForm = true
+						microformURL = subF.Data
 						log.Printf("INFO: %s contains tag 856u with a value indicating it is a microform", bibResp.Key)
 						break
 					}
 				}
 			}
 		}
-		if isMicroForm {
+		if microformURL != "" {
 			break
 		}
 	}
@@ -282,7 +282,7 @@ func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []avai
 				continue
 			}
 
-			item := availItem{CallNumber: callRec.Fields.DispCallNumber, IsMicroForm: isMicroForm}
+			item := availItem{CallNumber: callRec.Fields.DispCallNumber, MicroformURL: microformURL}
 			for _, test := range callRec.Fields.ItemList {
 				// if any item has copy num > 1, there are multiple copies; store the number.
 				if test.Fields.CopyNumber > 1 {
