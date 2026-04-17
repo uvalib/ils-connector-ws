@@ -199,7 +199,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 			availResp.TitleID = bibResp.Key
 
 			// parse sirsi data into an easier to manage format
-			items = svc.parseItemsFromSirsi(bibResp)
+			items = svc.parseItemsFromSirsi(catKey, bibResp)
 			svc.addLibraryItems(&availResp, items)
 			svc.addBoundWithItems(&availResp, bibResp)
 			svc.addSirsiRequestOptions(c, &availResp, items)
@@ -243,8 +243,8 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	c.JSON(http.StatusOK, availResp)
 }
 
-func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []availItem {
-	log.Printf("INFO: process items for %s", bibResp.Key)
+func (svc *serviceContext) parseItemsFromSirsi(catKey string, bibResp *sirsiBibResponse) []availItem {
+	log.Printf("INFO: process items for %s", catKey)
 	out := make([]availItem, 0)
 
 	// microform flag is set if tag 856 subfield u is set with a value like:
@@ -255,9 +255,15 @@ func (svc *serviceContext) parseItemsFromSirsi(bibResp *sirsiBibResponse) []avai
 			for _, subF := range field.Subfields {
 				if subF.Code == "u" {
 					if strings.Contains(subF.Data, "/sources/uva_library/items/u") {
-						microformURL = subF.Data
-						log.Printf("INFO: %s contains tag 856u with a value indicating it is a microform", bibResp.Key)
-						break
+						pathBits := strings.Split(subF.Data, "/")
+						identifier := pathBits[len(pathBits)-1]
+						if identifier != catKey {
+							microformURL = subF.Data
+							log.Printf("INFO: %s contains tag 856u with a value indicating it is a microform", catKey)
+							break
+						} else {
+							log.Printf("INFO: %s contains tag 856u with a value matching currrent cat key; do not use for microform request", catKey)
+						}
 					}
 				}
 			}
