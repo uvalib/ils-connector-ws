@@ -250,28 +250,33 @@ func (svc *serviceContext) parseItemsFromSirsi(catKey string, bibResp *sirsiBibR
 	// microform flag is set if tag 856 subfield u is set with a value like:
 	// "https://search.lib.virginia.edu/sources/uva_library/item/u"
 	microformURL := ""
-	for _, field := range bibResp.Fields.Bib.Fields {
-		if field.Tag == "856" {
-			for _, subF := range field.Subfields {
-				if subF.Code == "u" {
-					if strings.Contains(subF.Data, "/sources/uva_library/items/u") {
-						pathBits := strings.Split(subF.Data, "/")
-						identifier := pathBits[len(pathBits)-1]
-						if identifier != catKey {
-							microformURL = subF.Data
-							log.Printf("INFO: %s contains tag 856u with a value indicating it is a microform", catKey)
-							break
-						} else {
-							log.Printf("INFO: %s contains tag 856u with a value matching currrent cat key; do not use for microform request", catKey)
-						}
-					}
-				}
-			}
-		}
-		if microformURL != "" {
-			break
-		}
-	}
+
+	// TODO REMOVE THIS COMMENTED BLOCK TO ENABLE MICROFORM
+	// DISABLE MICROFORM LOGIC. WITHOUT THIS, THERE WILL BE NO NEW OPTIONS IN CLIENT UI
+	//
+	// for _, field := range bibResp.Fields.Bib.Fields {
+	// 	if field.Tag == "856" {
+	// 		for _, subF := range field.Subfields {
+	// 			if subF.Code == "u" {
+	// 				if strings.Contains(subF.Data, "/sources/uva_library/items/u") {
+	// 					pathBits := strings.Split(subF.Data, "/")
+	// 					identifier := pathBits[len(pathBits)-1]
+	// 					if identifier != catKey {
+	// 						microformURL = subF.Data
+	// 						log.Printf("INFO: %s contains tag 856u with a value indicating it is a microform", catKey)
+	// 						break
+	// 					} else {
+	// 						log.Printf("INFO: %s contains tag 856u with a value matching currrent cat key; do not use for microform request", catKey)
+	// 					}
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// 	if microformURL != "" {
+	// 		break
+	// 	}
+	// }
+
 	for _, callRec := range bibResp.Fields.CallList {
 		if callRec.Fields.Shadowed {
 			log.Printf("INFO: callRec key %s is shadowed; not adding to availability list", callRec.Key)
