@@ -300,13 +300,19 @@ type billItem struct {
 func (svc *serviceContext) getUserInfo(c *gin.Context) {
 	computeID := c.Param("compute_id")
 	log.Printf("INFO: lookup user %s in user-ws", computeID)
+	var userWsErr *requestError
 	var user userDetails
 	jwt := svc.mintUserServiceJWT()
 	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/user/%s?auth=%s", svc.UserInfoURL, computeID, jwt), nil)
 	raw, err := svc.sendRequest("user-ws", svc.HTTPClient, req)
 	if err != nil {
-		log.Printf("INFO: user %s not found in user-ws; flagging as community user", computeID)
-		user.CommunityUser = true
+		if err.StatusCode == 404 {
+			log.Printf("INFO: user %s not found in user-ws; flagging as community user", computeID)
+			user.CommunityUser = true
+		} else {
+			log.Printf("ERROR: got unexpected response %d:%s when looking for user %s; flagging user-ws failure", err.StatusCode, err.Message, computeID)
+			userWsErr = err
+		}
 	} else {
 		var userResp userInfoRespData
 		err := json.Unmarshal(raw, &userResp)
@@ -344,8 +350,13 @@ func (svc *serviceContext) getUserInfo(c *gin.Context) {
 				log.Printf("INFO: user %s not found in user-ws nor sirsi; flagging as not found", computeID)
 				c.String(http.StatusNotFound, fmt.Sprintf("%s not found", computeID))
 			} else {
-				user.NoAccount = true
-				c.JSON(http.StatusOK, user)
+				if userWsErr != nil {
+					log.Printf("INFO: user-ws failed; return %s for %s", userWsErr.string(), computeID)
+					c.String(userWsErr.StatusCode, userWsErr.Message)
+				} else {
+					user.NoAccount = true
+					c.JSON(http.StatusOK, user)
+				}
 			}
 		} else {
 			log.Printf("ERROR: get sirsi user %s failed: %s", computeID, sirsiErr.string())
