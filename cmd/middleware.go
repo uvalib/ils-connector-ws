@@ -56,10 +56,9 @@ func (svc *serviceContext) sirsiAuthMiddleware(c *gin.Context) {
 	log.Printf("INFO: ensure sirsi session exists for %s", c.Request.URL)
 	if svc.SirsiSession.SessionToken == "" || svc.SirsiSession.isExpired() {
 		log.Printf("INFO: authmiddleware detects expired or missing session token; logging in.")
-		err := svc.sirsiLogin()
-		if err != nil {
-			log.Printf("ERROR: %s", err.Error())
-			c.AbortWithError(http.StatusForbidden, err)
+		if err := svc.sirsiLogin(); err != nil {
+			log.Printf("ERROR: %s", err.string())
+			c.AbortWithError(err.StatusCode, fmt.Errorf("%s", err.Message))
 			return
 		}
 	}

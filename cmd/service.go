@@ -178,19 +178,19 @@ func (svc *serviceContext) sirsiReauthenticate(c *gin.Context) {
 	}
 
 	svc.terminateSession()
-	err = svc.sirsiLogin()
-	if err != nil {
-		log.Printf("ERROR: reauthenticate failed: %s", err.Error())
-		c.String(http.StatusInternalServerError, err.Error())
+	if err := svc.sirsiLogin(); err != nil {
+		log.Printf("ERROR: reauthenticate failed: %s", err.string())
+		c.String(err.StatusCode, err.Message)
 		return
 	}
 	c.String(http.StatusOK, "session refreshed")
 }
 
-func (svc *serviceContext) sirsiLogin() error {
+func (svc *serviceContext) sirsiLogin() *requestError {
 	log.Printf("INFO: attempting sirsi login for %s", svc.SirsiConfig.User)
 	svc.SirsiSession.SessionToken = ""
 	svc.SirsiSession.StaffKey = ""
+	// return &requestError{StatusCode: 503, Message: "FAKE ERROR"}
 	payloadOBJ := sirsiStaffLoginReq{
 		Login:    svc.SirsiConfig.User,
 		Password: svc.SirsiConfig.Password,
@@ -198,13 +198,13 @@ func (svc *serviceContext) sirsiLogin() error {
 
 	resp, err := svc.sirsiPost(svc.HTTPClient, "/user/staff/login", payloadOBJ)
 	if err != nil {
-		return fmt.Errorf("sirsi login failed with %d: %s", err.StatusCode, err.Message)
+		return err
 	}
 
 	var respObj sirsiSigniResponse
 	parseErr := json.Unmarshal(resp, &respObj)
 	if parseErr != nil {
-		return fmt.Errorf("unable to parse login response: %s", parseErr.Error())
+		return &requestError{StatusCode: http.StatusInternalServerError, Message: "unable to parse sirsi login response"}
 	}
 
 	svc.SirsiSession.SessionToken = respObj.SessionToken
@@ -339,11 +339,10 @@ func (svc *serviceContext) sendRequest(serviceName string, httpClient *http.Clie
 			if len(parsedErr.MessageList) == 1 && parsedErr.MessageList[0].Code == "sessionTimedOut" {
 				log.Printf("INFO: session timeout detected; re-establish session")
 				svc.terminateSession()
-				err := svc.sirsiLogin()
-				if err != nil {
+				if err := svc.sirsiLogin(); err != nil {
 					// can't authenticate. abort with an internal server error
-					log.Printf("ERROR: unable to reestablish sirsi session: %s", err)
-					return nil, &requestError{StatusCode: http.StatusInternalServerError, Message: err.Error()}
+					log.Printf("ERROR: unable to reestablish sirsi session: %s", err.string())
+					return nil, err
 				}
 			}
 		}
