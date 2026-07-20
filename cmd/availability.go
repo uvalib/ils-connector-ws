@@ -139,18 +139,22 @@ func (ai *availItem) toHoldableItem(notes string) holdableItem {
 }
 
 type boundWithRec struct {
-	IsParent   bool   `json:"is_parent"`
-	TitleID    string `json:"title_id"`
-	CallNumber string `json:"call_number"`
+	TitleID    string `json:"titleID"`
+	CallNumber string `json:"callNumber"`
 	Title      string `json:"title"`
 	Author     string `json:"author"`
 }
 
+type boundWithParent struct {
+	boundWithRec
+	Children []boundWithRec `json:"children"`
+}
+
 type availabilityResponse struct {
-	TitleID        string          `json:"title_id"`
-	Libraries      []*libraryItems `json:"libraries"`
-	RequestOptions *requestOptions `json:"request_options,omitempty"`
-	BoundWith      []boundWithRec  `json:"bound_with"`
+	TitleID        string            `json:"title_id"`
+	Libraries      []*libraryItems   `json:"libraries"`
+	RequestOptions *requestOptions   `json:"request_options,omitempty"`
+	BoundWith      []boundWithParent `json:"boundWith"`
 }
 
 type libraryItem struct {
@@ -173,7 +177,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	availResp := availabilityResponse{
 		TitleID:        catKey,
 		Libraries:      make([]*libraryItems, 0),
-		BoundWith:      make([]boundWithRec, 0),
+		BoundWith:      make([]boundWithParent, 0),
 		RequestOptions: createRequestOptions(),
 	}
 
@@ -426,27 +430,31 @@ func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requ
 func (svc *serviceContext) addBoundWithItems(resp *availabilityResponse, bibResp *sirsiBibResponse) {
 	// sample: sources/uva_library/items/u3315175
 	log.Printf("INFO: add bound with for %s", bibResp.Key)
-	out := make([]boundWithRec, 0)
-	if len(bibResp.Fields.BoundWithList) > 0 {
-		bwParent := extractBoundWithRec(bibResp.Fields.BoundWithList[0].Fields.Parent)
-		bwParent.IsParent = true
-		out = append(out, bwParent)
-		log.Printf("INFO: extracted bound with parent %s; processing %d children", bwParent.TitleID, len(bibResp.Fields.BoundWithList[0].Fields.ChildList))
-
-		for _, child := range bibResp.Fields.BoundWithList[0].Fields.ChildList {
-			out = append(out, extractBoundWithRec(child))
+	out := make([]boundWithParent, 0)
+	for _, bw := range bibResp.Fields.BoundWithList {
+		bwParent := boundWithParent{
+			boundWithRec: boundWithRec{
+				TitleID:    bw.Fields.Parent.Fields.Bib.Key,
+				Title:      bw.Fields.Parent.Fields.Title,
+				CallNumber: bw.Fields.Parent.Fields.CallNumber,
+				Author:     bw.Fields.Parent.Fields.Author,
+			},
+			Children: make([]boundWithRec, 0),
 		}
+		for _, bwC := range bw.Fields.ChildList {
+			child := boundWithRec{
+				TitleID:    bwC.Fields.Bib.Key,
+				Title:      bwC.Fields.Title,
+				CallNumber: bwC.Fields.CallNumber,
+				Author:     bwC.Fields.Author,
+			}
+			bwParent.Children = append(bwParent.Children, child)
+		}
+		out = append(out, bwParent)
 	}
+
 	log.Printf("INFO: add bound with for %s has completed", bibResp.Key)
 	resp.BoundWith = out
-}
-
-func extractBoundWithRec(sirsiRec sirsiBoundWithRec) boundWithRec {
-	return boundWithRec{Author: sirsiRec.Fields.Author,
-		Title:      sirsiRec.Fields.Title,
-		CallNumber: sirsiRec.Fields.CallNumber,
-		TitleID:    sirsiRec.Fields.Bib.Key,
-	}
 }
 
 func isVideo(itemTypeID string) bool {
