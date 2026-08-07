@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"net/url"
 	"slices"
 	"sort"
 	"strings"
+	"text/template"
 
 	"github.com/gin-gonic/gin"
 )
