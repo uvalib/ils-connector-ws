@@ -268,11 +268,16 @@ func holdableExists(optionType string, tgtItem availItem, holdableItems []*holda
 	for _, hi := range holdableItems {
 		if strings.EqualFold(hi.CallNumber, tgtItem.CallNumber) {
 			callExist = true
+			if slices.Contains(hi.Requests, optionType) {
+				optExist = true
+			}
 		}
-		if slices.Contains(hi.Requests, optionType) {
-			optExist = true
+
+		if callExist {
+			break
 		}
 	}
+
 	if optExist == false {
 		return false
 	}
