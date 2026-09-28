@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -151,10 +152,10 @@ type boundWithParent struct {
 }
 
 type availabilityResponse struct {
-	TitleID        string            `json:"title_id"`
-	Libraries      []*libraryItems   `json:"libraries"`
-	RequestOptions *requestOptions   `json:"request_options,omitempty"`
-	BoundWith      []boundWithParent `json:"boundWith"`
+	TitleID        string             `json:"title_id"`
+	Libraries      []*libraryItems    `json:"libraries"`
+	RequestOptions *requestOptions    `json:"request_options,omitempty"`
+	BoundWith      []*boundWithParent `json:"boundWith"`
 }
 
 type libraryItem struct {
@@ -177,7 +178,7 @@ func (svc *serviceContext) getAvailability(c *gin.Context) {
 	availResp := availabilityResponse{
 		TitleID:        catKey,
 		Libraries:      make([]*libraryItems, 0),
-		BoundWith:      make([]boundWithParent, 0),
+		BoundWith:      make([]*boundWithParent, 0),
 		RequestOptions: createRequestOptions(),
 	}
 
@@ -430,17 +431,28 @@ func (svc *serviceContext) getSirsiItem(catKey string) (*sirsiBibResponse, *requ
 func (svc *serviceContext) addBoundWithItems(resp *availabilityResponse, bibResp *sirsiBibResponse) {
 	// sample: sources/uva_library/items/u3315175
 	log.Printf("INFO: add bound with for %s", bibResp.Key)
-	out := make([]boundWithParent, 0)
+	out := make([]*boundWithParent, 0)
 	for _, bw := range bibResp.Fields.BoundWithList {
-		bwParent := boundWithParent{
-			boundWithRec: boundWithRec{
-				TitleID:    bw.Fields.Parent.Fields.Bib.Key,
-				Title:      bw.Fields.Parent.Fields.Title,
-				CallNumber: bw.Fields.Parent.Fields.CallNumber,
-				Author:     bw.Fields.Parent.Fields.Author,
-			},
-			Children: make([]boundWithRec, 0),
+		// see if parent callNumber already exists in the response. Add children to it if found
+		parentIdx := slices.IndexFunc(out, func(p *boundWithParent) bool {
+			return p.CallNumber == bw.Fields.Parent.Fields.CallNumber
+		})
+		var bwParent *boundWithParent
+		if parentIdx == -1 {
+			bwParent = &boundWithParent{
+				boundWithRec: boundWithRec{
+					TitleID:    bw.Fields.Parent.Fields.Bib.Key,
+					Title:      bw.Fields.Parent.Fields.Title,
+					CallNumber: bw.Fields.Parent.Fields.CallNumber,
+					Author:     bw.Fields.Parent.Fields.Author,
+				},
+				Children: make([]boundWithRec, 0),
+			}
+			out = append(out, bwParent)
+		} else {
+			bwParent = out[parentIdx]
 		}
+
 		for _, bwC := range bw.Fields.ChildList {
 			child := boundWithRec{
 				TitleID:    bwC.Fields.Bib.Key,
@@ -450,7 +462,6 @@ func (svc *serviceContext) addBoundWithItems(resp *availabilityResponse, bibResp
 			}
 			bwParent.Children = append(bwParent.Children, child)
 		}
-		out = append(out, bwParent)
 	}
 
 	log.Printf("INFO: add bound with for %s has completed", bibResp.Key)
