@@ -369,7 +369,33 @@ func (svc *serviceContext) registerNewUser(c *gin.Context) {
 		return
 	}
 	newUserBytes, _ := json.Marshal(tmpAcct)
-	log.Printf("INFO: register new user [%s]", newUserBytes)
+	log.Printf("INFO: register new user [%s]; first check to see if the email is already accociated with an account", newUserBytes)
+	sirsiURL := fmt.Sprintf("/user/patron/search?q=EMAIL:%s", tmpAcct.Email)
+	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, sirsiURL)
+	if sirsiErr != nil {
+		log.Printf("ERROR: search failed: %s", sirsiErr.string())
+		c.String(sirsiErr.StatusCode, sirsiErr.Message)
+		return
+	}
+
+	var searchResp struct {
+		SearchQuery  string `json:"searchQuery"`
+		StartRow     int    `json:"startRow"`
+		LastRow      int    `json:"lastRow"`
+		RowsPerPage  int    `json:"rowsPerPage"`
+		TotalResults int    `json:"totalResults"`
+	}
+	if err := json.Unmarshal(sirsiRaw, &searchResp); err != nil {
+		log.Printf("ERROR: unable to parse search response: %s", err.Error())
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+	if searchResp.TotalResults > 0 {
+		log.Printf("INFO: a user with email %s already exists", tmpAcct.Email)
+		c.String(http.StatusConflict, fmt.Sprintf("account with email %s already exists", tmpAcct.Email))
+		return
+	}
+	log.Printf("INFO: no prior account found for %s; continue with registration", tmpAcct.Email)
 
 	log.Printf("INFO: create sirsi register payload")
 	payload := sirsiRegistration{
