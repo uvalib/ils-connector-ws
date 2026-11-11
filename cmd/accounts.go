@@ -369,31 +369,44 @@ func (svc *serviceContext) registerNewUser(c *gin.Context) {
 		return
 	}
 	newUserBytes, _ := json.Marshal(tmpAcct)
-	log.Printf("INFO: register new user [%s]; first check to see if the email is already accociated with an account", newUserBytes)
-	sirsiURL := fmt.Sprintf("/user/patron/search?q=EMAIL:%s", tmpAcct.Email)
-	sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, sirsiURL)
-	if sirsiErr != nil {
-		log.Printf("ERROR: search failed: %s", sirsiErr.string())
-		c.String(sirsiErr.StatusCode, sirsiErr.Message)
-		return
+	log.Printf("INFO: register new user [%s]; first ensure no account already exists", newUserBytes)
+
+	type checkInfo struct {
+		Type    string
+		BaseURL string
+		Param   string
 	}
 
-	var searchResp struct {
-		SearchQuery  string `json:"searchQuery"`
-		StartRow     int    `json:"startRow"`
-		LastRow      int    `json:"lastRow"`
-		RowsPerPage  int    `json:"rowsPerPage"`
-		TotalResults int    `json:"totalResults"`
-	}
-	if err := json.Unmarshal(sirsiRaw, &searchResp); err != nil {
-		log.Printf("ERROR: unable to parse search response: %s", err.Error())
-		c.String(http.StatusInternalServerError, err.Error())
-		return
-	}
-	if searchResp.TotalResults > 0 {
-		log.Printf("INFO: a user with email %s already exists", tmpAcct.Email)
-		c.String(http.StatusConflict, fmt.Sprintf("account with email %s already exists", tmpAcct.Email))
-		return
+	checks := make([]checkInfo, 0)
+	checks = append(checks, checkInfo{Type: "email", BaseURL: "/user/patron/search?q=EMAIL:", Param: tmpAcct.Email})
+	checks = append(checks, checkInfo{Type: "phone", BaseURL: "/user/patron/search?q=PHONE:", Param: tmpAcct.Phone})
+	for _, check := range checks {
+		log.Printf("INFO: see if user with %s=[%s] exists", check.Type, check.Param)
+		sirsiURL := check.BaseURL + check.Param
+		sirsiRaw, sirsiErr := svc.sirsiGet(svc.HTTPClient, sirsiURL)
+		if sirsiErr != nil {
+			log.Printf("ERROR: search failed: %s", sirsiErr.string())
+			c.String(sirsiErr.StatusCode, sirsiErr.Message)
+			return
+		}
+
+		var searchResp struct {
+			SearchQuery  string `json:"searchQuery"`
+			StartRow     int    `json:"startRow"`
+			LastRow      int    `json:"lastRow"`
+			RowsPerPage  int    `json:"rowsPerPage"`
+			TotalResults int    `json:"totalResults"`
+		}
+		if err := json.Unmarshal(sirsiRaw, &searchResp); err != nil {
+			log.Printf("ERROR: unable to parse search response: %s", err.Error())
+			c.String(http.StatusInternalServerError, err.Error())
+			return
+		}
+		if searchResp.TotalResults > 0 {
+			log.Printf("INFO: a user with %s %s already exists", check.Type, check.Param)
+			c.String(http.StatusConflict, fmt.Sprintf("account with %s %s already exists", check.Type, check.Param))
+			return
+		}
 	}
 	log.Printf("INFO: no prior account found for %s; continue with registration", tmpAcct.Email)
 
